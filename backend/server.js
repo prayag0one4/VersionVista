@@ -1,69 +1,52 @@
 const express = require("express");
 const dotenv = require("dotenv");
-const connectDB = require("./src/config/db.js");
+const connectDB = require("./src/config/db");
 
-const Repo = require("./src/modules/repo/repo.model.js");
-const Commit = require("./src/modules/commit/commit.model.js");
-const FileChange = require("./src/modules/file_change/file_change.model.js");
+const { processRepo } = require("./src/services/git.service");
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 
-const testDB = async () => {
+// 🚀 API to process repo
+app.post("/api/repo/fetch", async (req, res) => {
   try {
-    const repo = await Repo.create({
-      name: "Medicare",
-      owner: "Ayush",
-      githubUrl: "https://github.com/Ayush-1812/MediCare"
-    });
+    const { repoUrl } = req.body;
 
-    console.log("Repo created:", repo._id);
+    if (!repoUrl) {
+      return res.status(400).json({ error: "Repo URL required" });
+    }
 
-    const commit = await Commit.create({
-      repoId: repo._id,
-      commitHash: "abc123",
-      message: "Initial commit",
-      author: { name: "Ayush", email: "test@gmail.com" },
-      filesChanged: 1,
-      insertions: 10,
-      deletions: 0
-    });
+    await processRepo(repoUrl);
 
-    console.log("Commit created:", commit._id);
-
-    const fileChange = await FileChange.create({
-      repoId: repo._id,
-      commitId: commit._id,
-      filePath: "src/index.js",
-      changeType: "added",
-      additions: 10,
-      deletions: 0
-    });
-
-    console.log("FileChange created:", fileChange._id);
+    res.json({ message: "Repo processed successfully 🚀" });
 
   } catch (err) {
     console.error(err);
+    res.status(500).json({ error: "Internal server error" });
   }
-};
+});
 
-// 🚀 Proper startup flow
+// health route
+app.get("/", (req, res) => {
+  res.send("Backend running 🚀");
+});
+
 const startServer = async () => {
   try {
-    await connectDB(); // ✅ connect once
-
+    await connectDB();
     console.log("MongoDB Connected");
 
-    await testDB(); // ✅ run after connection
+    const PORT = process.env.PORT || 5000;
 
-    app.listen(5000, () => {
-      console.log("Server running on port 5000");
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
     });
 
   } catch (err) {
     console.error(err);
+    process.exit(1);
   }
 };
 

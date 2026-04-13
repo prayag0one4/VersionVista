@@ -4,24 +4,42 @@ const fileChangeSchema = new mongoose.Schema({
   commitId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Commit",
-    required: true
+    required: true,
+    index: true    
   },
+
   repoId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Repo"
+    ref: "Repo",
+    index: true    
   },
 
   filePath: {
     type: String,
-    required: true
-  },
-  changeType: {
-    type: String,
-    enum: ["added", "modified", "deleted"]
+    required: true,
+    trim: true
   },
 
-  additions: Number,
-  deletions: Number
+  changeType: {
+    type: String,
+    enum: ["added", "modified", "deleted"],
+    required: true
+  },
+
+  additions: {
+    type: Number,
+    default: 0
+  },
+
+  deletions: {
+    type: Number,
+    default: 0
+  }
+
 }, { timestamps: true });
+
+
+ 
+fileChangeSchema.index({ commitId: 1, filePath: 1 }, { unique: true });
 
 module.exports = mongoose.model("FileChange", fileChangeSchema);
