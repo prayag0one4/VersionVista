@@ -1,37 +1,22 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const connectDB = require("./src/config/db");
-
-const { processRepo } = require("./src/services/git.service");
+const routes = require("./src/routes");
+const errorHandler = require("./src/middleware/errorHandler");
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 
-// 🚀 API to process repo
-app.post("/api/repo/fetch", async (req, res) => {
-  try {
-    const { repoUrl } = req.body;
-
-    if (!repoUrl) {
-      return res.status(400).json({ error: "Repo URL required" });
-    }
-
-    await processRepo(repoUrl);
-
-    res.json({ message: "Repo processed successfully 🚀" });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+app.use("/api", routes);
 
 // health route
 app.get("/", (req, res) => {
   res.send("Backend running 🚀");
 });
+
+app.use(errorHandler);
 
 const startServer = async () => {
   try {
