@@ -9,50 +9,8 @@ const repoBasePath = path.join(__dirname, "../../../repos");
 const getRepoPath = (repoName) => path.join(repoBasePath, repoName);
 
 /**
- * Find the nearest earlier checkpoint before a target commit
- */
-const findNearestCheckpoint = async (repoId, targetCommitIndex) => {
-  return CodeSnapshot.findOne({
-    repoId,
-    commitIndex: { $lte: targetCommitIndex },
-    isActive: true
-  }).sort({ commitIndex: -1 });
-};
-
-/**
- * Get all files in repository at a specific commit using git
- */
-const getAllFilesAtCommit = async (repoPath, commitHash) => {
-  try {
-    const gitRepo = simpleGit(repoPath);
-    
-    // Get list of all files at this commit
-    const allFiles = await gitRepo.raw(["ls-tree", "-r", "--name-only", commitHash]);
-    const filePaths = allFiles.split("\n").filter(f => f.trim());
-
-    const files = [];
-    for (const filePath of filePaths) {
-      try {
-        const content = await gitRepo.show([`${commitHash}:${filePath}`]);
-        files.push({
-          filePath,
-          content,
-          encoding: "utf-8"
-        });
-      } catch (err) {
-        console.warn(`Failed to read file ${filePath} at ${commitHash}:`, err.message);
-      }
-    }
-
-    return files;
-  } catch (err) {
-    console.error("Error getting files at commit:", err);
-    throw err;
-  }
-};
-
-/**
  * Create a code snapshot at a specific commit
+ * Stores only file paths (not content) to avoid BSON 16MB limit
  */
 const createSnapshot = async (repoId, repoName, commitHash, commitIndex, metadata = {}) => {
   try {
@@ -75,34 +33,57 @@ const createSnapshot = async (repoId, repoName, commitHash, commitIndex, metadat
     );
 
     const repoPath = getRepoPath(repoName);
-    const files = await getAllFilesAtCommit(repoPath, commitHash);
-
-    const totalSize = files.reduce((sum, f) => sum + (f.content?.length || 0), 0);
+    const filePaths = await getAllFilePathsAtCommit(repoPath, commitHash);
 
     const snapshot = await CodeSnapshot.create({
       repoId,
       commitHash,
       commitIndex,
-      files,
-      totalSize,
-      fileCount: files.length,
+      filePaths,
+      fileCount: filePaths.length,
       isActive: true,
       metadata
     });
 
-    console.log(`Created snapshot for ${commitHash} with ${files.length} files (${totalSize} bytes)`);
+    console.log(`✓ Created snapshot for ${commitHash} with ${filePaths.length} files (paths only, content fetched on-demand)`);
     return snapshot;
   } catch (err) {
-    console.error("Error creating snapshot:", err);
+    console.error("Error creating snapshot:", err.message);
     throw err;
   }
 };
 
 /**
- * Reconstruct repository state at a specific commit
+ * Get all file paths in repository at a specific commit using git
+ * Does NOT fetch content (to avoid BSON size limit)
+ */
+const getAllFilePathsAtCommit = async (repoPath, commitHash) => {
+  try {
+    const gitRepo = simpleGit(repoPath);
+    
+    console.log(`[snapshot] Getting file paths at commit ${commitHash} from ${repoPath}`);
+    
+    // Get list of all files at this commit (paths only, no content)
+    const allFiles = await gitRepo.raw(["ls-tree", "-r", "--name-only", commitHash]);
+    const filePaths = allFiles.split("\n").filter(f => f.trim());
+    
+    console.log(`[snapshot] Found ${filePaths.length} file paths at ${commitHash}`);
+    return filePaths;
+  } catch (err) {
+    console.error("[snapshot] Error getting file paths at commit:", err.message);
+    throw err;
+  }
+};
+
+/**
+ * Reconstruct repository state at a specific commit using checkpoint
+ * Fetches file content from git on-demand instead of using stored content
  */
 const reconstructRepositoryState = async (repoId, repoName, targetCommitHash) => {
   try {
+    const repoPath = getRepoPath(repoName);
+    const gitRepo = simpleGit(repoPath);
+    
     // Get the target commit to find its index
     const targetCommit = await Commit.findOne({
       repoId,
@@ -120,23 +101,19 @@ const reconstructRepositoryState = async (repoId, repoName, targetCommitHash) =>
       isActive: true
     }).sort({ commitIndex: -1 });
 
-    let fileState = new Map();
+    let fileState = new Set();
 
-    // If checkpoint exists, use it as base
+    // If checkpoint exists, use it as base (just get the file list)
     if (checkpoint) {
-      checkpoint.files.forEach(f => {
-        fileState.set(f.filePath, f);
-      });
+      fileState = new Set(checkpoint.filePaths || []);
     } else {
       // No checkpoint, fetch from git at first available commit
-      const repoPath = getRepoPath(repoName);
       const firstCommit = await Commit.findOne({ repoId }).sort({ timestamp: 1 });
       
       if (firstCommit) {
-        const files = await getAllFilesAtCommit(repoPath, firstCommit.commitHash);
-        files.forEach(f => {
-          fileState.set(f.filePath, f);
-        });
+        const allFiles = await gitRepo.raw(["ls-tree", "-r", "--name-only", firstCommit.commitHash]);
+        const filePaths = allFiles.split("\n").filter(f => f.trim());
+        fileState = new Set(filePaths);
       }
     }
 
@@ -149,7 +126,7 @@ const reconstructRepositoryState = async (repoId, repoName, targetCommitHash) =>
       timestamp: { $gt: startTimestamp }
     }).sort({ timestamp: 1 });
 
-    // Replay diffs
+    // Replay diffs to update file state (add/remove files)
     for (const commit of commits) {
       const diffs = await Diff.find({ commitId: commit._id });
 
@@ -157,14 +134,7 @@ const reconstructRepositoryState = async (repoId, repoName, targetCommitHash) =>
         if (diff.changeType === "deleted") {
           fileState.delete(diff.filePath);
         } else {
-          // Reconstruct file content from hunks
-          const previousFile = fileState.get(diff.filePath);
-          const newContent = reconstructFileContent(diff.hunks, previousFile);
-          fileState.set(diff.filePath, {
-            filePath: diff.filePath,
-            content: newContent,
-            encoding: "utf-8"
-          });
+          fileState.add(diff.filePath);
         }
       }
 
@@ -174,41 +144,26 @@ const reconstructRepositoryState = async (repoId, repoName, targetCommitHash) =>
       }
     }
 
-    return Array.from(fileState.values());
+    // Now fetch content from git for all files in final state
+    const files = [];
+    for (const filePath of fileState) {
+      try {
+        const content = await gitRepo.show([`${targetCommitHash}:${filePath}`]);
+        files.push({
+          filePath,
+          content,
+          encoding: "utf-8"
+        });
+      } catch (err) {
+        console.warn(`[snapshot] Failed to fetch ${filePath} at ${targetCommitHash}`);
+      }
+    }
+
+    return files;
   } catch (err) {
-    console.error("Error reconstructing repository state:", err);
+    console.error("[snapshot] Error reconstructing repository state:", err.message);
     throw err;
   }
-};
-
-/**
- * Reconstruct file content from hunks
- */
-const reconstructFileContent = (hunks, previousFile) => {
-  if (!previousFile || !hunks || hunks.length === 0) {
-    // New file: only keep added lines
-    return hunks
-      ?.flatMap(h => h.changes || [])
-      .filter(c => c.type !== "removed")
-      .map(c => c.content)
-      .join("\n") || "";
-  }
-
-  let lines = previousFile.content.split("\n");
-
-  // Apply hunks in order
-  hunks.forEach((hunk, idx) => {
-    const addedLines = hunk.changes
-      .filter(c => c.type !== "removed")
-      .map(c => c.content);
-
-    const removeCount = hunk.oldLines || hunk.changes.filter(c => c.type === "removed").length;
-    const insertIndex = Math.max(0, hunk.newStart - 1);
-
-    lines.splice(insertIndex, removeCount, ...addedLines);
-  });
-
-  return lines.join("\n");
 };
 
 /**
@@ -247,15 +202,10 @@ const listSnapshots = async (repoId, options = {}) => {
 
 /**
  * Get repository state at a specific commit (optimized)
+ * Always reconstructs from checkpoint to get actual file content
  */
 const getRepositoryStateAtCommit = async (repoId, repoName, commitHash) => {
-  // Try to get exact snapshot if available
-  const exactSnapshot = await getSnapshot(repoId, commitHash);
-  if (exactSnapshot) {
-    return exactSnapshot.files;
-  }
-
-  // Otherwise reconstruct from checkpoint
+  // Always reconstruct to fetch current file content from git
   return reconstructRepositoryState(repoId, repoName, commitHash);
 };
 
@@ -278,11 +228,9 @@ const pruneOldSnapshots = async (repoId, keepCount = 5) => {
 };
 
 module.exports = {
-  findNearestCheckpoint,
-  getAllFilesAtCommit,
+  getAllFilePathsAtCommit,
   createSnapshot,
   reconstructRepositoryState,
-  reconstructFileContent,
   getSnapshot,
   listSnapshots,
   getRepositoryStateAtCommit,

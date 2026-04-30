@@ -18,16 +18,8 @@ const codeSnapshotSchema = new mongoose.Schema({
     required: true
   },
 
-  files: [
-    {
-      filePath: String,
-      content: String,
-      encoding: {
-        type: String,
-        default: "utf-8"
-      }
-    }
-  ],
+  // Store only file paths, not content (to avoid 16MB BSON limit)
+  filePaths: [String],
 
   totalSize: Number,
   fileCount: Number,

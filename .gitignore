@@ -3,3 +3,11 @@ node_modules
 repos/
 implementation_plan.md
 *.md
+
+# Checkpoint system documentation and generated summaries
+CHECKPOINT_FILES_CREATED.txt
+CHECKPOINT_INDEX.md
+CHECKPOINT_QUICKSTART.md
+CHECKPOINT_QUICK_REFERENCE.md
+CHECKPOINT_SYSTEM.md
+IMPLEMENTATION_CHECKPOINT_SUMMARY.md

@@ -1,7 +1,9 @@
 const repoService = require("./repo.service");
+const Commit = require("../commit/commit.model");
 const commitService = require("../commit/commit.service");
 const diffService = require("../diff/diff.service");
 const fileChangeService = require("../file_change/file_change.service");
+const codeSnapshotService = require("../code_snapshot/code_snapshot.service");
 const {
   cloneRepo,
   getCommitLog,
@@ -113,6 +115,34 @@ const fetchAndProcess = async (req, res, next) => {
       }
     }
 
+    let snapshot = null;
+    if (commits.length > 0) {
+      const snapshotCommit = commits[commits.length - 1];
+      const snapshotCommitDate = new Date(snapshotCommit.date);
+
+      const commitIndex = await Commit.countDocuments({
+        repoId: repo._id,
+        timestamp: { $lt: snapshotCommitDate }
+      });
+
+      try {
+        snapshot = await codeSnapshotService.createSnapshot(
+          repo._id,
+          repo.name,
+          snapshotCommit.hash,
+          commitIndex,
+          {
+            branch: repo.defaultBranch,
+            author: snapshotCommit.author_name,
+            message: snapshotCommit.message
+          }
+        );
+        console.log(`✓ Snapshot created for commit ${snapshotCommit.hash}`);
+      } catch (snapshotErr) {
+        console.error(`✗ Snapshot creation failed for commit ${snapshotCommit.hash}:`, snapshotErr.message);
+      }
+    }
+
     res.json({
       success: true,
       message: "Repo processed successfully",
@@ -122,7 +152,9 @@ const fetchAndProcess = async (req, res, next) => {
         commitsProcessed: commits.length,
         commitsCreated: createdCommits,
         fileChangesCreated: createdFileChanges,
-        diffsCreated: createdDiffs
+        diffsCreated: createdDiffs,
+        snapshotCreated: Boolean(snapshot),
+        snapshotCommitHash: snapshot?.commitHash || null
       }
     });
   } catch (err) {
