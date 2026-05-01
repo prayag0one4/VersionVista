@@ -5,8 +5,12 @@ const commitRoutes = require("../modules/commit/commit.routes");
 const diffRoutes = require("../modules/diff/diff.routes");
 const fileChangeRoutes = require("../modules/file_change/file_change.routes");
 const codeSnapshotRoutes = require("../modules/code_snapshot/code_snapshot.routes");
+const codeSnapshotController = require("../modules/code_snapshot/code_snapshot.controller");
 
 const router = express.Router();
+
+router.get("/snapshot-paths", codeSnapshotController.getFilePaths);
+router.get("/snapshot-file", codeSnapshotController.getCommitFile);
 
 router.use("/repo", repoRoutes);
 router.use("/commits", commitRoutes);

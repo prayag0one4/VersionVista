@@ -75,6 +75,27 @@ const getAllFilePathsAtCommit = async (repoPath, commitHash) => {
   }
 };
 
+const getFilePathsAtCommit = async (repoName, commitHash) => {
+  const repoPath = getRepoPath(repoName);
+  return getAllFilePathsAtCommit(repoPath, commitHash);
+};
+
+const getFileContentAtCommit = async (repoName, commitHash, filePath) => {
+  try {
+    const repoPath = getRepoPath(repoName);
+    const gitRepo = simpleGit(repoPath);
+
+    if (!filePath) {
+      throw new Error("filePath is required");
+    }
+
+    return gitRepo.show([`${commitHash}:${filePath}`]);
+  } catch (err) {
+    console.error(`[snapshot] Error getting ${filePath} at ${commitHash}:`, err.message);
+    throw err;
+  }
+};
+
 /**
  * Reconstruct repository state at a specific commit using checkpoint
  * Fetches file content from git on-demand instead of using stored content
@@ -229,6 +250,8 @@ const pruneOldSnapshots = async (repoId, keepCount = 5) => {
 
 module.exports = {
   getAllFilePathsAtCommit,
+  getFilePathsAtCommit,
+  getFileContentAtCommit,
   createSnapshot,
   reconstructRepositoryState,
   getSnapshot,

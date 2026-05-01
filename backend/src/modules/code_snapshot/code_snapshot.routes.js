@@ -6,9 +6,6 @@ const router = express.Router();
 // Create a new snapshot
 router.post("/create", codeSnapshotController.createSnapshot);
 
-// Get all snapshots for a repository
-router.get("/:repoId", codeSnapshotController.listSnapshots);
-
 // Get a specific snapshot
 router.get("/:repoId/snapshot/:commitHash", codeSnapshotController.getSnapshot);
 
@@ -20,5 +17,8 @@ router.get("/:repoId/diff/:fromCommit/:toCommit", codeSnapshotController.getComm
 
 // Prune old snapshots
 router.delete("/:repoId/prune", codeSnapshotController.pruneSnapshots);
+
+// Get all snapshots for a repository
+router.get("/:repoId", codeSnapshotController.listSnapshots);
 
 module.exports = router;

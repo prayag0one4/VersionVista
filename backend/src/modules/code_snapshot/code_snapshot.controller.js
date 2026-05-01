@@ -77,6 +77,72 @@ const getSnapshot = async (req, res) => {
 };
 
 /**
+ * Get file paths at a specific commit
+ * GET /code-snapshots/paths?repoId=...&commitHash=...
+ */
+const getFilePaths = async (req, res) => {
+  try {
+    const { repoId, commitHash } = req.query;
+
+    if (!repoId || !commitHash) {
+      return res.status(400).json({ error: "repoId and commitHash are required" });
+    }
+
+    const repo = await Repo.findById(repoId);
+    if (!repo) {
+      return res.status(404).json({ error: "Repository not found" });
+    }
+
+    const filePaths = await codeSnapshotService.getFilePathsAtCommit(repo.name, commitHash);
+
+    res.json({
+      repoId,
+      commitHash,
+      fileCount: filePaths.length,
+      filePaths
+    });
+  } catch (err) {
+    console.error("Error getting commit file paths:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * Get the content of a single file at a commit
+ * GET /code-snapshots/file?repoId=...&commitHash=...&path=src/index.js
+ */
+const getCommitFile = async (req, res) => {
+  try {
+    const { repoId, commitHash, path: filePath } = req.query;
+
+    if (!repoId || !commitHash || !filePath) {
+      return res.status(400).json({ error: "repoId, commitHash and path are required" });
+    }
+
+    const repo = await Repo.findById(repoId);
+    if (!repo) {
+      return res.status(404).json({ error: "Repository not found" });
+    }
+
+    const content = await codeSnapshotService.getFileContentAtCommit(
+      repo.name,
+      commitHash,
+      filePath
+    );
+
+    res.json({
+      repoId,
+      commitHash,
+      filePath,
+      content
+    });
+  } catch (err) {
+    console.error("Error getting commit file:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
  * Get repository state at a specific commit (with reconstruction if needed)
  * GET /code-snapshots/:repoId/state/:commitHash
  */
@@ -209,6 +275,8 @@ const getCommitDiff = async (req, res) => {
 module.exports = {
   createSnapshot,
   getSnapshot,
+  getFilePaths,
+  getCommitFile,
   getRepositoryState,
   listSnapshots,
   pruneSnapshots,
