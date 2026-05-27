@@ -2,6 +2,26 @@ import React, { useMemo } from 'react'
 
 const getLines = (content = '') => content.split('\n')
 
+// Simple diff algorithm to identify added and removed lines
+const computeLineDiff = (previousContent, currentContent) => {
+  const prevLines = getLines(previousContent)
+  const currLines = getLines(currentContent)
+  
+  const lineStatus = currLines.map((line, index) => {
+    if (index >= prevLines.length) return 'added'
+    if (prevLines[index] !== line) return 'modified'
+    return 'unchanged'
+  })
+  
+  // Mark removed lines (lines that existed before but not now)
+  const prevLineStatus = prevLines.map((line, index) => {
+    if (index >= currLines.length) return 'removed'
+    return 'unchanged'
+  })
+  
+  return { lineStatus, removedCount: prevLines.length - currLines.length }
+}
+
 const CodeViewer = ({ selectedFilePath, currentCommit, currentFile, fileHistory = [], onSeek }) => {
   const currentLines = useMemo(() => getLines(currentFile?.content || ''), [currentFile?.content])
 
@@ -17,82 +37,122 @@ const CodeViewer = ({ selectedFilePath, currentCommit, currentFile, fileHistory 
     })
   }, [fileHistory])
 
+  // Compute diff between current and previous file
+  const lineStatus = useMemo(() => {
+    if (fileHistory.length === 0) return []
+    
+    const currentIndex = fileHistory.findIndex(
+      (entry) => entry.commitHash === currentCommit?.commitHash
+    )
+    
+    if (currentIndex <= 0) return currentLines.map(() => 'unchanged')
+    
+    const previousContent = fileHistory[currentIndex - 1]?.content || ''
+    const currentContent = currentFile?.content || ''
+    const { lineStatus } = computeLineDiff(previousContent, currentContent)
+    
+    return lineStatus
+  }, [currentFile?.content, fileHistory, currentCommit?.commitHash])
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#1e1e1e] text-zinc-100">
-      <div className="flex items-center justify-between border-b border-white/10 bg-[#252526] px-4 py-3 text-sm">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Editor</div>
-          <div className="mt-1 font-medium text-zinc-100">
-            {selectedFilePath || 'No file selected'}
+      <div className="flex items-center justify-between border-b border-white/10 bg-[#252526] px-2.5 py-1.5 text-xs flex-shrink-0">
+        <div className="min-w-0">
+          <div className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider truncate">
+            {selectedFilePath ? selectedFilePath.split('/').pop() : 'no file'}
+          </div>
+          <div className="text-[10px] text-zinc-400">
+            {selectedFilePath ? `${currentLines.length} lines` : ''}
           </div>
         </div>
 
-        <div className="text-right text-xs text-zinc-400">
+        <div className="text-right text-[9px] text-zinc-500 ml-2 whitespace-nowrap flex-shrink-0">
           {currentCommit ? (
             <>
-              <div>{currentCommit.commitHash?.slice(0, 10)}</div>
-              <div className="max-w-56 truncate">{currentCommit.message}</div>
+              <div className="font-mono text-zinc-300">{currentCommit.commitHash?.slice(0, 8)}</div>
+              <div className="max-w-40 truncate text-zinc-500 text-[8px]">{currentCommit.message}</div>
             </>
           ) : (
-            'Select a repository to begin'
+            'Select repo'
           )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto w-full min-h-0">
         {currentFile ? (
           <div
             key={`${currentCommit?.commitHash || 'no-commit'}:${selectedFilePath || 'none'}`}
-            className="grid grid-cols-[auto_1fr] gap-x-4 px-4 py-4 font-mono text-[13px] leading-6 transition-opacity duration-200"
+            className="font-mono text-[11px] leading-snug transition-opacity duration-200 w-full"
           >
-            <div className="select-none text-right text-zinc-500">
-              {currentLines.map((_, lineIndex) => (
-                <div key={lineIndex}>{lineIndex + 1}</div>
-              ))}
-            </div>
-            <pre className="whitespace-pre-wrap break-words text-zinc-100">
-              {currentLines.join('\n')}
-            </pre>
+            {currentLines.map((line, lineIndex) => {
+              const status = lineStatus[lineIndex] || 'unchanged'
+              const bgColor = 
+                status === 'added' ? 'bg-green-900/20 hover:bg-green-900/30' :
+                status === 'modified' ? 'bg-yellow-900/20 hover:bg-yellow-900/30' :
+                'hover:bg-white/5'
+              
+              const lineNumberColor = 
+                status === 'added' ? 'text-green-600' :
+                status === 'modified' ? 'text-yellow-600' :
+                'text-zinc-600'
+
+              return (
+                <div 
+                  key={lineIndex}
+                  className={`flex gap-x-3 px-3 py-px ${bgColor} transition-colors`}
+                >
+                  <div className={`select-none text-right min-w-10 flex-shrink-0 ${lineNumberColor} bg-[#1e1e1e]`}>
+                    {lineIndex + 1}
+                  </div>
+                  <pre className="flex-1 whitespace-pre-wrap break-words text-zinc-100 bg-transparent min-w-0">
+                    {line}
+                  </pre>
+                  {status !== 'unchanged' && (
+                    <div className={`text-[9px] px-1.5 py-0 rounded flex items-center flex-shrink-0 ${
+                      status === 'added' ? 'text-green-400' : 'text-yellow-400'
+                    }`}>
+                      {status === 'added' ? '+' : '~'}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center px-8 text-center text-sm text-zinc-500">
+          <div className="flex h-full items-center justify-center px-4 text-center text-xs text-zinc-500">
             {selectedFilePath
-              ? 'Loading file content from the backend...'
-              : 'Pick a file in the explorer to inspect its evolution.'}
+              ? 'Loading...'
+              : 'Pick a file'}
           </div>
         )}
       </div>
 
-      <div className="border-t border-white/10 bg-[#202020] px-4 py-3">
-        <div className="mb-2 text-xs uppercase tracking-[0.28em] text-zinc-500">
-          File Playback
-        </div>
+      {historyWithContent.length > 0 && (
+        <div className="border-t border-white/10 bg-[#252526] px-2.5 py-1.5 flex-shrink-0 overflow-x-auto">
+          <div className="text-[7px] uppercase tracking-wide text-zinc-600 font-semibold whitespace-nowrap mb-1">
+            History
+          </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {historyWithContent.map((entry, index) => (
-            <button
-              type="button"
-              key={`${entry.commitHash}-${index}`}
-              onClick={() => onSeek(index)}
-              className={`min-w-32 rounded border px-3 py-2 text-left text-xs transition ${
-                entry.exists
-                  ? entry.changed
-                    ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
-                    : 'border-white/10 bg-white/5 text-zinc-200'
-                  : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
-              }`}
-            >
-              <div className="font-medium">{entry.commitHash.slice(0, 8)}</div>
-              <div className="truncate opacity-80">{entry.message}</div>
-            </button>
-          ))}
-          {!historyWithContent.length && (
-            <div className="rounded border border-dashed border-white/10 px-3 py-2 text-xs text-zinc-500">
-              Open a file to see its timeline playback.
-            </div>
-          )}
+          <div className="flex gap-1 pb-0.5">
+            {historyWithContent.map((entry, index) => (
+              <button
+                type="button"
+                key={`${entry.commitHash}-${index}`}
+                onClick={() => onSeek(index)}
+                className={`min-w-20 rounded px-1.5 py-1 text-[8px] transition-colors flex-shrink-0 ${
+                  entry.exists
+                    ? entry.changed
+                      ? 'border border-blue-500/50 bg-blue-500/15 text-blue-200 hover:bg-blue-500/25'
+                      : 'border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'
+                    : 'border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+                }`}
+              >
+                <div className="font-mono">{entry.commitHash.slice(0, 6)}</div>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

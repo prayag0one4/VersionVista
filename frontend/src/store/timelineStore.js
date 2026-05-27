@@ -3,6 +3,7 @@ import { create } from 'zustand'
 export const useTimelineStore = create((set) => ({
   repos: [],
   selectedRepoId: null,
+  commitLimit: 100,
   commits: [],
   currentIndex: 0,
   selectedFilePath: null,
@@ -21,6 +22,7 @@ export const useTimelineStore = create((set) => ({
       isPlaying: false,
       error: null
     }),
+  setCommitLimit: (commitLimit) => set({ commitLimit }),
   setCommits: (commits) =>
     set({
       commits,

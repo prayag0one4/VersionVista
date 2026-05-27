@@ -8,9 +8,19 @@ import { useTimelineStore } from './store/timelineStore'
 const sortByTimestamp = (items = []) =>
   [...items].sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp))
 
+const normalizeCommitLimit = (value) => {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed)) {
+    return 100
+  }
+
+  return Math.min(1000, Math.max(1, parsed))
+}
+
 export default function App() {
   const repos = useTimelineStore((state) => state.repos)
   const selectedRepoId = useTimelineStore((state) => state.selectedRepoId)
+  const commitLimit = useTimelineStore((state) => state.commitLimit)
   const commits = useTimelineStore((state) => state.commits)
   const currentIndex = useTimelineStore((state) => state.currentIndex)
   const selectedFilePath = useTimelineStore((state) => state.selectedFilePath)
@@ -21,6 +31,7 @@ export default function App() {
   const error = useTimelineStore((state) => state.error)
   const setRepos = useTimelineStore((state) => state.setRepos)
   const setSelectedRepoId = useTimelineStore((state) => state.setSelectedRepoId)
+  const setCommitLimit = useTimelineStore((state) => state.setCommitLimit)
   const setCommits = useTimelineStore((state) => state.setCommits)
   const setCurrentIndex = useTimelineStore((state) => state.setCurrentIndex)
   const setSelectedFilePath = useTimelineStore((state) => state.setSelectedFilePath)
@@ -33,6 +44,8 @@ export default function App() {
   const [stateCache, setStateCache] = useState({})
   const stateCacheRef = useRef({})
   const loadedHashesRef = useRef(new Set())
+  const inFlightCommitLoadsRef = useRef(new Map())
+  const inFlightFileLoadsRef = useRef(new Map())
 
   const selectedRepo = useMemo(
     () => repos.find((repo) => repo._id === selectedRepoId) || null,
@@ -73,29 +86,44 @@ export default function App() {
         return stateCacheRef.current[commitHash] || null
       }
 
-      const response = await api.getCommitPaths(repoId, commitHash)
-      const filePaths = Array.isArray(response?.filePaths) ? response.filePaths : []
-
-      loadedHashesRef.current.add(commitHash)
-      stateCacheRef.current = {
-        ...stateCacheRef.current,
-        [commitHash]: {
-          commitHash,
-          filePaths,
-          fileContents: stateCacheRef.current[commitHash]?.fileContents || {}
-        }
+      const inFlight = inFlightCommitLoadsRef.current.get(commitHash)
+      if (inFlight) {
+        return inFlight
       }
 
-      setStateCache((previous) => ({
-        ...previous,
-        [commitHash]: {
-          commitHash,
-          filePaths,
-          fileContents: previous[commitHash]?.fileContents || {}
-        }
-      }))
+      const request = (async () => {
+        const response = await api.getCommitPaths(repoId, commitHash)
+        const filePaths = Array.isArray(response?.filePaths) ? response.filePaths : []
 
-      return { commitHash, filePaths }
+        loadedHashesRef.current.add(commitHash)
+        stateCacheRef.current = {
+          ...stateCacheRef.current,
+          [commitHash]: {
+            commitHash,
+            filePaths,
+            fileContents: stateCacheRef.current[commitHash]?.fileContents || {}
+          }
+        }
+
+        setStateCache((previous) => ({
+          ...previous,
+          [commitHash]: {
+            commitHash,
+            filePaths,
+            fileContents: previous[commitHash]?.fileContents || {}
+          }
+        }))
+
+        return { commitHash, filePaths }
+      })()
+
+      inFlightCommitLoadsRef.current.set(commitHash, request)
+
+      try {
+        return await request
+      } finally {
+        inFlightCommitLoadsRef.current.delete(commitHash)
+      }
     },
     []
   )
@@ -110,32 +138,48 @@ export default function App() {
       return cached
     }
 
-    const response = await api.getCommitFile(repoId, commitHash, filePath)
-    const content = response?.content || ''
-
-    stateCacheRef.current = {
-      ...stateCacheRef.current,
-      [commitHash]: {
-        ...stateCacheRef.current[commitHash],
-        fileContents: {
-          ...(stateCacheRef.current[commitHash]?.fileContents || {}),
-          [filePath]: { filePath, content }
-        }
-      }
+    const requestKey = `${commitHash}:${filePath}`
+    const inFlight = inFlightFileLoadsRef.current.get(requestKey)
+    if (inFlight) {
+      return inFlight
     }
 
-    setStateCache((previous) => ({
-      ...previous,
-      [commitHash]: {
-        ...previous[commitHash],
-        fileContents: {
-          ...(previous[commitHash]?.fileContents || {}),
-          [filePath]: { filePath, content }
+    const request = (async () => {
+      const response = await api.getCommitFile(repoId, commitHash, filePath)
+      const content = response?.content || ''
+
+      stateCacheRef.current = {
+        ...stateCacheRef.current,
+        [commitHash]: {
+          ...stateCacheRef.current[commitHash],
+          fileContents: {
+            ...(stateCacheRef.current[commitHash]?.fileContents || {}),
+            [filePath]: { filePath, content }
+          }
         }
       }
-    }))
 
-    return { filePath, content }
+      setStateCache((previous) => ({
+        ...previous,
+        [commitHash]: {
+          ...previous[commitHash],
+          fileContents: {
+            ...(previous[commitHash]?.fileContents || {}),
+            [filePath]: { filePath, content }
+          }
+        }
+      }))
+
+      return { filePath, content }
+    })()
+
+    inFlightFileLoadsRef.current.set(requestKey, request)
+
+    try {
+      return await request
+    } finally {
+      inFlightFileLoadsRef.current.delete(requestKey)
+    }
   }, [])
 
   const loadRepos = useCallback(async () => {
@@ -160,13 +204,15 @@ export default function App() {
   }, [setError, setLoading, setRepos, setSelectedRepoId])
 
   const loadCommits = useCallback(
-    async (repoId) => {
+    async (repoId, limitValue = commitLimit) => {
       try {
         setLoading(true)
         setError(null)
         loadedHashesRef.current = new Set()
 
-        const response = await api.listCommits(repoId, 100)
+        const limit = normalizeCommitLimit(limitValue)
+
+        const response = await api.listCommits(repoId, limit)
         const ordered = sortByTimestamp(response?.data || [])
 
         setCommits(ordered)
@@ -184,7 +230,7 @@ export default function App() {
         setLoading(false)
       }
     },
-    [loadCommitState, setCommits, setCurrentIndex, setError, setLoading]
+    [commitLimit, loadCommitState, setCommits, setCurrentIndex, setError, setLoading]
   )
 
   const handleRepoSelect = useCallback(
@@ -207,14 +253,27 @@ export default function App() {
       setLoading(true)
       setError(null)
 
-      await api.fetchRepo(trimmedUrl)
+      const response = await api.fetchRepo(trimmedUrl, commitLimit)
+      const analyzedRepoId = response?.data?.repoId || null
+
+      if (analyzedRepoId) {
+        setSelectedRepoId(analyzedRepoId)
+      }
+
       await loadRepos()
     } catch (fetchError) {
       setError(fetchError.message)
     } finally {
       setLoading(false)
     }
-  }, [loadRepos, repoInputUrl, setError, setLoading])
+  }, [commitLimit, loadRepos, repoInputUrl, setError, setLoading, setSelectedRepoId])
+
+  const handleCommitLimitChange = useCallback(
+    (value) => {
+      setCommitLimit(normalizeCommitLimit(value))
+    },
+    [setCommitLimit]
+  )
 
   useEffect(() => {
     loadRepos()
@@ -222,7 +281,7 @@ export default function App() {
 
   useEffect(() => {
     if (selectedRepoId) {
-      loadCommits(selectedRepoId)
+      loadCommits(selectedRepoId, commitLimit)
     } else {
       setCommits([])
       setCurrentIndex(0)
@@ -231,7 +290,7 @@ export default function App() {
       stateCacheRef.current = {}
       loadedHashesRef.current = new Set()
     }
-  }, [selectedRepoId, loadCommits, setCommits, setCurrentIndex, setSelectedFilePath])
+  }, [commitLimit, selectedRepoId, loadCommits, setCommits, setCurrentIndex, setSelectedFilePath])
 
   useEffect(() => {
     if (!selectedRepoId || commits.length === 0) {
@@ -274,33 +333,37 @@ export default function App() {
     }
 
     let cancelled = false
+    let loadIdx = 0
 
-    ;(async () => {
-      for (const commit of commits) {
-        if (cancelled) {
-          return
-        }
+    const loadNextFile = async () => {
+      if (cancelled || loadIdx >= commits.length) {
+        return
+      }
 
+      const commit = commits[loadIdx]
+      loadIdx += 1
+
+      try {
         if (!loadedHashesRef.current.has(commit.commitHash)) {
-          try {
-            await loadCommitState(selectedRepoId, commit.commitHash)
-          } catch (fetchError) {
-            setError(fetchError.message)
-            return
-          }
+          await loadCommitState(selectedRepoId, commit.commitHash)
         }
 
         const filePaths = stateCacheRef.current[commit.commitHash]?.filePaths || []
         if (filePaths.includes(selectedFilePath) && !stateCacheRef.current[commit.commitHash]?.fileContents?.[selectedFilePath]) {
-          try {
-            await loadFileContent(selectedRepoId, commit.commitHash, selectedFilePath)
-          } catch (fetchError) {
-            setError(fetchError.message)
-            return
-          }
+          await loadFileContent(selectedRepoId, commit.commitHash, selectedFilePath)
         }
+      } catch (fetchError) {
+        setError(fetchError.message)
       }
-    })()
+
+      requestAnimationFrame(() => {
+        if (!cancelled) {
+          loadNextFile()
+        }
+      })
+    }
+
+    loadNextFile()
 
     return () => {
       cancelled = true
@@ -323,10 +386,9 @@ export default function App() {
 
   const handleSeek = useCallback(
     (nextIndex) => {
-      setPlaying(false)
       setCurrentIndex(nextIndex)
     },
-    [setCurrentIndex, setPlaying]
+    [setCurrentIndex]
   )
 
   const handleOpenFile = useCallback(
@@ -341,83 +403,91 @@ export default function App() {
   }, [setPlaying])
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.18),_transparent_30%),linear-gradient(180deg,#111827_0%,#09090b_100%)] text-zinc-100">
-      <div className="mx-auto flex min-h-screen max-w-[1800px] flex-col gap-4 p-4">
-        <header className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 shadow-2xl shadow-black/20 backdrop-blur">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.36em] text-sky-300/80">
-                VersionVista
-              </div>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white">
-                Repository Evolution Replay
-              </h1>
-              <p className="mt-1 max-w-2xl text-sm text-zinc-400">
-                Browse commits, play the history, and inspect how each file changes over time through the backend snapshot API.
-              </p>
+    <div className="h-screen flex flex-col bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.18),_transparent_30%),linear-gradient(180deg,#111827_0%,#09090b_100%)] text-zinc-100 overflow-hidden">
+      <header className="border-b border-white/10 bg-white/5 px-4 py-3 shadow-xl shadow-black/20 backdrop-blur flex-shrink-0">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <div className="text-[9px] uppercase tracking-[0.32em] text-sky-300/80">
+              VersionVista
             </div>
-
-            <div className="flex flex-col gap-3 lg:min-w-[540px]">
-              <div className="flex gap-2">
-                <select
-                  value={selectedRepoId || ''}
-                  onChange={(event) => handleRepoSelect(event.target.value)}
-                  className="min-w-48 flex-1 rounded-lg border border-white/10 bg-[#0f172a] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
-                >
-                  <option value="">Select a repository</option>
-                  {repos.map((repo) => (
-                    <option key={repo._id} value={repo._id}>
-                      {repo.owner}/{repo.name}
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  onClick={loadRepos}
-                  className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-200 transition hover:bg-white/10"
-                >
-                  Refresh
-                </button>
-              </div>
-
-              <div className="flex gap-2">
-                <input
-                  value={repoInputUrl}
-                  onChange={(event) => setRepoInputUrl(event.target.value)}
-                  placeholder="Paste a GitHub repository URL to analyze"
-                  className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0f172a] px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-sky-500"
-                />
-
-                <button
-                  type="button"
-                  onClick={handleAnalyzeRepo}
-                  className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={isLoading}
-                >
-                  {isLoading ? 'Analyzing...' : 'Analyze'}
-                </button>
-              </div>
-            </div>
+            <h1 className="text-lg font-semibold tracking-tight text-white whitespace-nowrap">
+              Repository Evolution Replay
+            </h1>
           </div>
 
-          {error && (
-            <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-              {error}
-            </div>
-          )}
-        </header>
+          <div className="flex flex-col gap-2 md:flex-row md:gap-3 md:min-w-fit">
+            <div className="flex gap-1.5">
+              <div className="flex items-center gap-1 rounded border border-white/10 bg-[#0f172a] px-2 py-1.5">
+                <span className="text-[10px] text-zinc-400">Commits</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  step={1}
+                  value={commitLimit}
+                  onChange={(event) => handleCommitLimitChange(event.target.value)}
+                  className="w-16 bg-transparent text-right text-xs text-zinc-100 outline-none"
+                />
+              </div>
 
-        <div className="grid flex-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
-          <aside className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b1020]/90 shadow-2xl shadow-black/20 backdrop-blur">
-            <div className="border-b border-white/10 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.32em] text-zinc-500">Explorer</div>
-              <div className="mt-1 text-sm text-zinc-300">
-                {selectedRepo ? `${selectedRepo.owner}/${selectedRepo.name}` : 'No repository selected'}
+              <select
+                value={selectedRepoId || ''}
+                onChange={(event) => handleRepoSelect(event.target.value)}
+                className="min-w-40 rounded border border-white/10 bg-[#0f172a] px-2 py-1.5 text-xs text-zinc-100 outline-none focus:border-sky-500"
+              >
+                <option value="">Select repo</option>
+                {repos.map((repo) => (
+                  <option key={repo._id} value={repo._id}>
+                    {repo.owner}/{repo.name}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={loadRepos}
+                className="rounded border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-zinc-200 transition hover:bg-white/10"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="flex gap-1.5">
+              <input
+                value={repoInputUrl}
+                onChange={(event) => setRepoInputUrl(event.target.value)}
+                placeholder="GitHub URL"
+                className="min-w-0 flex-1 rounded border border-white/10 bg-[#0f172a] px-2 py-1.5 text-xs text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-sky-500"
+              />
+
+              <button
+                type="button"
+                onClick={handleAnalyzeRepo}
+                className="rounded bg-sky-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={isLoading}
+              >
+                {isLoading ? 'Loading...' : 'Analyze'}
+              </button>
+            </div>
+            </div>
+        </div>
+        {error && (
+          <div className="border-b border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs text-rose-100">
+            {error}
+          </div>
+        )}
+      </header>
+
+      <div className="flex-1 min-h-0 grid gap-0 xl:grid-cols-[240px_minmax(0,1fr)_260px] bg-[#1e1e1e] border-t border-white/10 overflow-hidden">
+          <aside className="flex flex-col min-h-0 border-r border-white/10 bg-[#252526]">
+            <div className="border-b border-white/10 px-3 py-2 flex-shrink-0">
+              <div className="text-[9px] uppercase tracking-[0.32em] text-zinc-500 font-semibold">Explorer</div>
+              <div className="mt-1.5 text-xs text-zinc-300 truncate font-medium">
+                {selectedRepo ? `${selectedRepo.owner}/${selectedRepo.name}` : 'No repo'}
               </div>
             </div>
 
-            <div className="max-h-[calc(100vh-220px)] overflow-auto p-3">
+            <div className="flex-1 overflow-auto min-h-0">
               <FileTree
                 files={currentFiles}
                 selectedFilePath={selectedFilePath}
@@ -426,8 +496,8 @@ export default function App() {
             </div>
           </aside>
 
-          <main className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#101827]/90 shadow-2xl shadow-black/20 backdrop-blur">
-            <div className="flex-1 min-h-[520px]">
+          <main className="flex min-h-0 flex-col overflow-hidden bg-[#1e1e1e]">
+            <div className="flex-1 min-h-0 overflow-auto">
               <CodeViewer
                 selectedFilePath={selectedFilePath}
                 currentCommit={currentCommit}
@@ -437,7 +507,7 @@ export default function App() {
               />
             </div>
 
-            <div className="border-t border-white/10 p-4">
+            <div className="border-t border-white/10 bg-[#252526] p-3 flex-shrink-0">
               <Timeline
                 commits={commits}
                 currentIndex={currentIndex}
@@ -450,36 +520,40 @@ export default function App() {
             </div>
           </main>
 
-          <aside className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b1020]/90 shadow-2xl shadow-black/20 backdrop-blur">
-            <div className="border-b border-white/10 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.32em] text-zinc-500">Inspector</div>
-              <div className="mt-1 text-sm text-zinc-300">Playback details</div>
+          <aside className="flex flex-col min-h-0 border-l border-white/10 bg-[#252526]">
+            <div className="border-b border-white/10 px-3 py-2 flex-shrink-0">
+              <div className="text-[9px] uppercase tracking-[0.32em] text-zinc-500 font-semibold">Timeline</div>
+              <div className="mt-1.5 text-xs text-zinc-300 font-medium">Commit info</div>
             </div>
 
-            <div className="space-y-4 p-4 text-sm text-zinc-300">
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="text-xs uppercase tracking-[0.28em] text-zinc-500">Current commit</div>
-                <div className="mt-2 font-medium text-white">
-                  {currentCommit ? currentCommit.commitHash : 'No commit selected'}
+            <div className="flex-1 overflow-auto min-h-0 space-y-2 p-2.5 text-xs text-zinc-300">
+              <div className="rounded border border-white/10 bg-white/5 p-2.5">
+                <div className="text-[8px] uppercase tracking-[0.28em] text-zinc-500 font-semibold">Hash</div>
+                <div className="mt-1.5 font-mono text-[9px] text-zinc-100 break-all">
+                  {currentCommit ? currentCommit.commitHash.slice(0, 12) : '—'}
                 </div>
-                <div className="mt-1 text-zinc-400">{currentCommit?.message || 'Load a repository to begin.'}</div>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="text-xs uppercase tracking-[0.28em] text-zinc-500">Repository</div>
-                <div className="mt-2 font-medium text-white">
-                  {selectedRepo ? `${selectedRepo.owner}/${selectedRepo.name}` : 'None'}
+              <div className="rounded border border-white/10 bg-white/5 p-2.5">
+                <div className="text-[8px] uppercase tracking-[0.28em] text-zinc-500 font-semibold">Message</div>
+                <div className="mt-1.5 text-[9px] text-zinc-300 line-clamp-3">
+                  {currentCommit?.message || 'Select repository'}
                 </div>
-                <div className="mt-1 text-zinc-400">Commits loaded: {commits.length}</div>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-zinc-400">
-                The UI connects directly to the backend routes under <span className="text-zinc-200">/api</span>,
-                including repo analysis, commit listing, and commit-state reconstruction.
+              <div className="rounded border border-white/10 bg-white/5 p-2.5">
+                <div className="text-[8px] uppercase tracking-[0.28em] text-zinc-500 font-semibold">Repository</div>
+                <div className="mt-1.5 text-[9px] text-white font-medium">
+                  {selectedRepo ? `${selectedRepo.owner}/${selectedRepo.name}` : '—'}
+                </div>
+                <div className="mt-0.5 text-[8px] text-zinc-500">{commits.length} commits</div>
+              </div>
+
+              <div className="rounded border border-white/10 bg-white/5 p-2.5 text-[8px] text-zinc-400 leading-relaxed">
+                Track repository commits over time with live code replay.
               </div>
             </div>
           </aside>
-        </div>
       </div>
     </div>
   )

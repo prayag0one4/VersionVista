@@ -13,11 +13,11 @@ const TreeNode = ({ node, depth, expanded, onToggle, onSelectFile, selectedFileP
         <button
           type="button"
           onClick={() => onToggle(node.path)}
-          className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm text-zinc-300 hover:bg-white/5"
-          style={{ paddingLeft: `${depth * 14 + 8}px` }}
+          className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs text-zinc-300 hover:text-zinc-100 hover:bg-white/5 transition-colors"
+          style={{ paddingLeft: `${depth * 12 + 4}px` }}
         >
-          <span className="text-[10px] text-zinc-500">{isOpen ? '▾' : '▸'}</span>
-          <span className="truncate">{node.name || 'root'}</span>
+          <span className="text-xs w-4 text-center text-zinc-600">{isOpen ? '▼' : '▶'}</span>
+          <span className="truncate font-medium">{node.name || 'root'}</span>
         </button>
 
         <div className="overflow-hidden transition-all duration-200">
@@ -42,12 +42,14 @@ const TreeNode = ({ node, depth, expanded, onToggle, onSelectFile, selectedFileP
     <button
       type="button"
       onClick={() => onSelectFile(node.path)}
-      className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition ${
-        isSelected ? 'bg-sky-500/20 text-sky-200' : 'text-zinc-300 hover:bg-white/5'
+      className={`flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs transition-colors ${
+        isSelected 
+          ? 'bg-blue-600/30 text-blue-200' 
+          : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
       }`}
-      style={{ paddingLeft: `${depth * 14 + 18}px` }}
+      style={{ paddingLeft: `${depth * 12 + 20}px` }}
     >
-      <span className="text-[10px] text-zinc-500">⌁</span>
+      <span className="text-xs w-4 text-center text-zinc-600 flex-shrink-0">📄</span>
       <span className="truncate">{node.name}</span>
     </button>
   )
@@ -87,7 +89,7 @@ const FileTree = ({ files = [], selectedFilePath, onSelectFile }) => {
   }
 
   return (
-    <div className="space-y-1 text-xs">
+    <div className="space-y-px text-xs">
       {tree.length ? (
         tree.map((node) => (
           <TreeNode
@@ -101,8 +103,8 @@ const FileTree = ({ files = [], selectedFilePath, onSelectFile }) => {
           />
         ))
       ) : (
-        <div className="rounded border border-dashed border-white/10 px-3 py-4 text-sm text-zinc-500">
-          Open a repository to see its file tree.
+        <div className="px-2 py-6 text-center text-xs text-zinc-600">
+          Open a repository
         </div>
       )}
     </div>

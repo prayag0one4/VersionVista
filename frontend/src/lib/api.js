@@ -25,10 +25,10 @@ const request = async (path, options = {}) => {
 
 export const api = {
   listRepos: () => request('/repo'),
-  fetchRepo: (repoUrl) =>
+  fetchRepo: (repoUrl, commitLimit) =>
     request('/repo/fetch', {
       method: 'POST',
-      body: JSON.stringify({ repoUrl })
+      body: JSON.stringify({ repoUrl, commitLimit })
     }),
   listCommits: (repoId, limit = 100) =>
     request(`/commits?repoId=${encodeURIComponent(repoId)}&limit=${limit}`),

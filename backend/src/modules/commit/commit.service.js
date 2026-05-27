@@ -15,7 +15,7 @@ const bulkCreateCommits = async (dataArray) => {
 
 const getCommitsByRepoId = async (repoId, options = {}) => {
   const page = Math.max(1, Number(options.page) || 1);
-  const limit = Math.max(1, Math.min(100, Number(options.limit) || 20));
+  const limit = Math.max(1, Math.min(1000, Number(options.limit) || 20));
   const skip = (page - 1) * limit;
 
   const [items, total] = await Promise.all([

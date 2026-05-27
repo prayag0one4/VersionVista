@@ -37,9 +37,19 @@ const getChangeType = (file) => {
   return "modified";
 };
 
+const normalizeCommitLimit = (value) => {
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsed)) {
+    return 20;
+  }
+
+  return Math.min(1000, Math.max(1, parsed));
+};
+
 const fetchAndProcess = async (req, res, next) => {
   try {
-    const { repoUrl } = req.body;
+    const { repoUrl, commitLimit } = req.body;
 
     if (!repoUrl) {
       const err = new Error("repoUrl is required");
@@ -51,7 +61,8 @@ const fetchAndProcess = async (req, res, next) => {
     const owner = getOwnerFromRepoUrl(repoUrl);
     const repo = await repoService.findOrCreate(repoUrl, repoName, owner);
 
-    const commits = await getCommitLog(repoPath, 20);
+    const normalizedLimit = normalizeCommitLimit(commitLimit);
+    const commits = await getCommitLog(repoPath, normalizedLimit);
 
     let createdCommits = 0;
     let createdFileChanges = 0;
@@ -149,6 +160,8 @@ const fetchAndProcess = async (req, res, next) => {
       data: {
         repoId: repo._id,
         repoName: repo.name,
+        commitLimitRequested: normalizedLimit,
+        commitsFetchedFromRepo: commits.length,
         commitsProcessed: commits.length,
         commitsCreated: createdCommits,
         fileChangesCreated: createdFileChanges,

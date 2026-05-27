@@ -12,7 +12,7 @@ const Timeline = ({ commits, currentIndex, onSeek, isPlaying, onTogglePlay, spee
 
     timerRef.current = window.setInterval(() => {
       onSeek((value) => Math.min(value + 1, commits.length - 1))
-    }, Math.max(220, 900 / speed))
+    }, Math.max(200, 800 / speed))
 
     return () => window.clearInterval(timerRef.current)
   }, [isPlaying, speed, commits.length, onSeek])
@@ -31,31 +31,31 @@ const Timeline = ({ commits, currentIndex, onSeek, isPlaying, onTogglePlay, spee
   )
 
   return (
-    <div className="rounded-xl border border-white/10 bg-[#202020] p-4 text-zinc-200 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-2 text-zinc-200">
+      <div className="flex items-center gap-1.5 flex-wrap">
         <button
           type="button"
           onClick={onTogglePlay}
-          className="rounded-md bg-sky-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-400"
+          className="rounded px-2 py-1 text-xs font-medium bg-green-600 hover:bg-green-500 text-white transition flex-shrink-0"
         >
-          {isPlaying ? 'Pause' : 'Play'}
+          {isPlaying ? '⏸ Pause' : '▶ Play'}
         </button>
 
-        <div className="rounded-md border border-white/10 px-3 py-2 text-xs text-zinc-400">
-          {currentCommit ? `${currentCommit.commitHash.slice(0, 10)} • ${currentCommit.message}` : 'No commit loaded'}
+        <div className="text-xs text-zinc-400 truncate flex-1 font-mono min-w-0">
+          {currentCommit ? `${currentCommit.commitHash.slice(0, 8)} • ${currentCommit.message}` : 'No commit'}
         </div>
 
-        <div className="ml-auto flex items-center gap-2 text-xs text-zinc-500">
-          <span>Speed</span>
+        <div className="flex items-center gap-1 text-xs text-zinc-500 flex-shrink-0">
+          <span className="text-zinc-600 text-[10px]">Speed:</span>
           {SPEEDS.map((value) => (
             <button
               type="button"
               key={value}
               onClick={() => onSpeedChange(value)}
-              className={`rounded-full border px-2.5 py-1 transition ${
+              className={`rounded px-1 py-0.5 text-[10px] transition ${
                 speed === value
-                  ? 'border-sky-500 bg-sky-500/15 text-sky-200'
-                  : 'border-white/10 bg-white/5 text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white/5 text-zinc-400 hover:text-zinc-200'
               }`}
             >
               {value}x
@@ -64,10 +64,10 @@ const Timeline = ({ commits, currentIndex, onSeek, isPlaying, onTogglePlay, spee
         </div>
       </div>
 
-      <div className="mt-4 space-y-3">
-        <div className="relative h-2 rounded-full bg-white/8">
+      <div className="space-y-1">
+        <div className="relative h-1 rounded-full bg-white/10 cursor-pointer group">
           <div
-            className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-sky-500 to-cyan-300 transition-all duration-200"
+            className="absolute inset-y-0 left-0 rounded-full bg-blue-500 group-hover:bg-blue-400 transition-all duration-75"
             style={{ width: `${progress}%` }}
           />
           <input
@@ -76,27 +76,13 @@ const Timeline = ({ commits, currentIndex, onSeek, isPlaying, onTogglePlay, spee
             max={Math.max(0, commits.length - 1)}
             value={currentIndex}
             onChange={(event) => onSeek(Number(event.target.value))}
-            className="absolute inset-0 h-2 w-full cursor-pointer appearance-none bg-transparent"
+            className="absolute inset-0 w-full h-1 cursor-pointer appearance-none bg-transparent"
           />
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {markers.map(({ commit, index, isActive }) => (
-            <button
-              type="button"
-              key={commit.commitHash}
-              onClick={() => onSeek(index)}
-              className={`min-w-28 rounded-md border px-3 py-2 text-left text-xs transition ${
-                isActive
-                  ? 'border-sky-500 bg-sky-500/15 text-sky-100'
-                  : 'border-white/10 bg-white/5 text-zinc-400 hover:border-white/20 hover:text-zinc-200'
-              }`}
-              title={commit.message}
-            >
-              <div className="font-medium text-[11px]">{commit.commitHash.slice(0, 8)}</div>
-              <div className="truncate opacity-80">{commit.message}</div>
-            </button>
-          ))}
+        <div className="text-xs text-zinc-500 flex justify-between">
+          <span>{currentIndex + 1}</span>
+          <span>{commits.length}</span>
         </div>
       </div>
     </div>
