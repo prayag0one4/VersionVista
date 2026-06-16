@@ -83,81 +83,23 @@ const reconstructRepositoryState = async (repoId, repoName, targetCommitHash) =>
   try {
     const repoPath = getRepoPath(repoName);
     const gitRepo = simpleGit(repoPath);
-    
-    // Get the target commit to find its index
-    const targetCommit = await Commit.findOne({
-      repoId,
-      commitHash: targetCommitHash
-    });
 
-    if (!targetCommit) {
-      throw new Error(`Commit ${targetCommitHash} not found`);
-    }
+    // Get exact file list from git at target commit (fast - single git command)
+    const allFiles = await gitRepo.raw(["ls-tree", "-r", "--name-only", targetCommitHash]);
+    const filePaths = allFiles.split("\n").filter(f => f.trim());
 
-    // Find nearest checkpoint
-    const checkpoint = await CodeSnapshot.findOne({
-      repoId,
-      commitIndex: { $lte: targetCommit.commitIndex || 0 },
-      isActive: true
-    }).sort({ commitIndex: -1 });
-
-    let fileState = new Set();
-
-    // If checkpoint exists, use it as base (just get the file list)
-    if (checkpoint) {
-      fileState = new Set(checkpoint.filePaths || []);
-    } else {
-      // No checkpoint, fetch from git at first available commit
-      const firstCommit = await Commit.findOne({ repoId }).sort({ timestamp: 1 });
-      
-      if (firstCommit) {
-        const allFiles = await gitRepo.raw(["ls-tree", "-r", "--name-only", firstCommit.commitHash]);
-        const filePaths = allFiles.split("\n").filter(f => f.trim());
-        fileState = new Set(filePaths);
-      }
-    }
-
-    // Determine start point for diff replay
-    const startTimestamp = checkpoint ? checkpoint.createdAt : new Date(0);
-
-    // Get all commits between checkpoint and target
-    const commits = await Commit.find({
-      repoId,
-      timestamp: { $gt: startTimestamp }
-    }).sort({ timestamp: 1 });
-
-    // Replay diffs to update file state (add/remove files)
-    for (const commit of commits) {
-      const diffs = await Diff.find({ commitId: commit._id });
-
-      for (const diff of diffs) {
-        if (diff.changeType === "deleted") {
-          fileState.delete(diff.filePath);
-        } else {
-          fileState.add(diff.filePath);
+    // Fetch content from git for all files in parallel
+    const files = await Promise.all(
+      filePaths.map(async (filePath) => {
+        try {
+          const content = await gitRepo.show([`${targetCommitHash}:${filePath}`]);
+          return { filePath, content, encoding: "utf-8" };
+        } catch (err) {
+          console.warn(`[snapshot] Failed to fetch ${filePath} at ${targetCommitHash}`);
+          return null;
         }
-      }
-
-      // Stop if we reached target commit
-      if (commit.commitHash === targetCommitHash) {
-        break;
-      }
-    }
-
-    // Now fetch content from git for all files in final state
-    const files = [];
-    for (const filePath of fileState) {
-      try {
-        const content = await gitRepo.show([`${targetCommitHash}:${filePath}`]);
-        files.push({
-          filePath,
-          content,
-          encoding: "utf-8"
-        });
-      } catch (err) {
-        console.warn(`[snapshot] Failed to fetch ${filePath} at ${targetCommitHash}`);
-      }
-    }
+      })
+    ).then(results => results.filter(Boolean));
 
     return files;
   } catch (err) {
@@ -227,10 +169,155 @@ const pruneOldSnapshots = async (repoId, keepCount = 5) => {
   return 0;
 };
 
+/**
+ * Get content of a single file at a specific commit
+ * Fetches on-demand from git (no stored content)
+ */
+const getFileContent = async (repoName, commitHash, filePath) => {
+  try {
+    const repoPath = getRepoPath(repoName);
+    const gitRepo = simpleGit(repoPath);
+    console.log(`[snapshot] Fetching content for ${filePath} at ${commitHash}`);
+    const content = await gitRepo.show([`${commitHash}:${filePath}`]);
+    return content;
+  } catch (err) {
+    console.error(`[snapshot] Failed to get content for ${filePath} at ${commitHash}:`, err.message);
+    throw err;
+  }
+};
+
+/**
+ * Get line-by-line diff for a specific file between two commits (full file with inline highlights)
+ * Uses proper LCS-based diff algorithm to avoid showing shifted lines as changes
+ * Returns ALL lines from the new file with type markers: added, removed, context, modified
+ */
+const getFileDiff = async (repoName, fromCommitHash, toCommitHash, filePath) => {
+  try {
+    const repoPath = getRepoPath(repoName);
+    const gitRepo = simpleGit(repoPath);
+    console.log(`[snapshot] Getting full diff for ${filePath} from ${fromCommitHash} to ${toCommitHash}`);
+    
+    // Get full file content from both commits
+    const [oldContent, newContent] = await Promise.all([
+      gitRepo.show([`${fromCommitHash}:${filePath}`]).catch(() => ''),
+      gitRepo.show([`${toCommitHash}:${filePath}`]).catch(() => '')
+    ]);
+    
+    const oldLines = oldContent.split('\n');
+    const newLines = newContent.split('\n');
+    
+    // Proper LCS diff algorithm (Myers O(ND))
+    // Returns array of { type, oldIndex, newIndex } where indices are 0-based
+    const computeLCS = (oldArr, newArr) => {
+      const n = oldArr.length;
+      const m = newArr.length;
+      
+      // Build DP table for LCS
+      const dp = Array(n + 1).fill(null).map(() => Array(m + 1).fill(0));
+      
+      for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+          if (oldArr[i] === newArr[j]) {
+            dp[i][j] = 1 + dp[i + 1][j + 1];
+          } else {
+            dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+          }
+        }
+      }
+      
+      // Reconstruct the alignment
+      const result = [];
+      let i = 0, j = 0;
+      
+      while (i < n || j < m) {
+        if (i < n && j < m && oldArr[i] === newArr[j]) {
+          // Match - common line
+          result.push({ type: 'context', oldIndex: i, newIndex: j });
+          i++;
+          j++;
+        } else if (j < m && (i >= n || dp[i][j + 1] >= dp[i + 1][j])) {
+          // Addition in new file
+          result.push({ type: 'added', oldIndex: null, newIndex: j });
+          j++;
+        } else if (i < n) {
+          // Deletion from old file
+          result.push({ type: 'removed', oldIndex: i, newIndex: null });
+          i++;
+        } else {
+          // Only additions left
+          result.push({ type: 'added', oldIndex: null, newIndex: j });
+          j++;
+        }
+      }
+      
+      return result;
+    };
+    
+    const alignment = computeLCS(oldLines, newLines);
+    
+    // Convert to output format with proper line numbers
+    let oldLineNum = 0;
+    let newLineNum = 0;
+    
+    const result = alignment.map(item => {
+      if (item.type === 'context') {
+        oldLineNum++;
+        newLineNum++;
+        return {
+          type: 'context',
+          content: newLines[item.newIndex],
+          oldLineNum,
+          newLineNum
+        };
+      } else if (item.type === 'added') {
+        newLineNum++;
+        return {
+          type: 'added',
+          content: newLines[item.newIndex],
+          oldLineNum: null,
+          newLineNum
+        };
+      } else { // removed
+        oldLineNum++;
+        return {
+          type: 'removed',
+          content: oldLines[item.oldIndex],
+          oldLineNum,
+          newLineNum: null
+        };
+      }
+    });
+    
+    return result.length > 0 ? result : newLines.map((content, idx) => ({
+      type: 'context',
+      content,
+      oldLineNum: idx + 1,
+      newLineNum: idx + 1
+    }));
+  } catch (err) {
+    console.error(`[snapshot] Failed to get diff for ${filePath}:`, err.message);
+    try {
+      const repoPath = getRepoPath(repoName);
+      const gitRepo = simpleGit(repoPath);
+      const newContent = await gitRepo.show([`${toCommitHash}:${filePath}`]);
+      return newContent.split('\n').map((content, idx) => ({
+        type: 'context',
+        content,
+        oldLineNum: idx + 1,
+        newLineNum: idx + 1
+      }));
+    } catch {
+      return [];
+    }
+  }
+};
+
 module.exports = {
   getAllFilePathsAtCommit,
   createSnapshot,
   reconstructRepositoryState,
+  getFileContent,
+  getFileDiff,
   getSnapshot,
   listSnapshots,
   getRepositoryStateAtCommit,

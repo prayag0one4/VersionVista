@@ -1,6 +1,9 @@
 const codeSnapshotService = require("./code_snapshot.service");
 const Repo = require("../repo/repo.model");
 const Commit = require("../commit/commit.model");
+const path = require("path");
+
+const repoBasePath = path.join(__dirname, "../../../repos");
 
 /**
  * Create a snapshot at a specific commit
@@ -77,7 +80,8 @@ const getSnapshot = async (req, res) => {
 };
 
 /**
- * Get repository state at a specific commit (with reconstruction if needed)
+ * Get repository state at a specific commit (paths only - fast)
+ * File content is fetched on-demand via a separate endpoint
  * GET /code-snapshots/:repoId/state/:commitHash
  */
 const getRepositoryState = async (req, res) => {
@@ -89,20 +93,71 @@ const getRepositoryState = async (req, res) => {
       return res.status(404).json({ error: "Repository not found" });
     }
 
-    const files = await codeSnapshotService.getRepositoryStateAtCommit(
-      repoId,
-      repo.name,
-      commitHash
-    );
+    const repoPath = path.join(repoBasePath, repo.name);
+    const filePaths = await codeSnapshotService.getAllFilePathsAtCommit(repoPath, commitHash);
 
     res.json({
       repoId,
       commitHash,
-      fileCount: files.length,
-      files
+      fileCount: filePaths.length,
+      files: filePaths.map(fp => ({ filePath: fp }))
     });
   } catch (err) {
     console.error("Error getting repository state:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * Get content of a single file at a specific commit
+ * GET /code-snapshots/:repoId/state/:commitHash/content?path=<filepath>
+ */
+const getFileContent = async (req, res) => {
+  try {
+    const { repoId, commitHash } = req.params;
+    const { path: filePath } = req.query;
+
+    if (!filePath) {
+      return res.status(400).json({ error: "path query parameter is required" });
+    }
+
+    const repo = await Repo.findById(repoId);
+    if (!repo) {
+      return res.status(404).json({ error: "Repository not found" });
+    }
+
+    const content = await codeSnapshotService.getFileContent(repo.name, commitHash, filePath);
+
+    res.json({ filePath, content });
+  } catch (err) {
+    console.error("Error getting file content:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * Get line-by-line diff for a specific file between two commits
+ * GET /code-snapshots/:repoId/diff/:fromCommit/:toCommit/file?path=<filepath>
+ */
+const getFileDiff = async (req, res) => {
+  try {
+    const { repoId, fromCommit, toCommit } = req.params;
+    const { path: filePath } = req.query;
+
+    if (!filePath) {
+      return res.status(400).json({ error: "path query parameter is required" });
+    }
+
+    const repo = await Repo.findById(repoId);
+    if (!repo) {
+      return res.status(404).json({ error: "Repository not found" });
+    }
+
+    const diffLines = await codeSnapshotService.getFileDiff(repo.name, fromCommit, toCommit, filePath);
+
+    res.json({ filePath, fromCommit, toCommit, lines: diffLines });
+  } catch (err) {
+    console.error("Error getting file diff:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -210,6 +265,8 @@ module.exports = {
   createSnapshot,
   getSnapshot,
   getRepositoryState,
+  getFileContent,
+  getFileDiff,
   listSnapshots,
   pruneSnapshots,
   getCommitDiff
