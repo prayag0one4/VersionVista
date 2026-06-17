@@ -2,8 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { api, Commit } from '@/lib/api';
 import { useUIStore } from '@/store/uiStore';
 import { useTimelineStore } from '@/store/timelineStore';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Minus, Plus } from 'lucide-react';
+import { tokenizeCode, type TokenInfo } from '@/lib/syntaxHighlight';
 
 interface DiffLine {
   type: 'added' | 'removed' | 'context' | 'hunk';
@@ -86,6 +87,36 @@ export function CodeViewerPanel() {
   const hasActualChanges = diffData && diffData.some(l => l.type === 'added' || l.type === 'removed') && currentCommitIndex > 0;
   const canShowDiff = showDiff && hasActualChanges;
 
+  const [tokenizedContent, setTokenizedContent] = useState<TokenInfo[][] | null>(null);
+
+  useEffect(() => {
+    if (fileContent && !canShowDiff) {
+      tokenizeCode(fileContent, selectedFileId!).then(result => {
+        setTokenizedContent(result.lines.map(l => l.tokens));
+      });
+    } else {
+      setTokenizedContent(null);
+    }
+  }, [fileContent, selectedFileId, canShowDiff]);
+
+  const [tokenizedDiff, setTokenizedDiff] = useState<(TokenInfo[] | null)[]>([]);
+
+  useEffect(() => {
+    if (diffData && canShowDiff) {
+      const fullCode = diffData.map(l => l.content).join('\n');
+      tokenizeCode(fullCode, selectedFileId!).then(result => {
+        const tokenLines = result.lines.map(l => l.tokens);
+        if (tokenLines.length === diffData.length) {
+          setTokenizedDiff(tokenLines);
+        } else {
+          setTokenizedDiff(diffData.map(l => l.content ? [{ content: l.content, color: '#d4d4d4' }] : null));
+        }
+      });
+    } else {
+      setTokenizedDiff([]);
+    }
+  }, [diffData, canShowDiff, selectedFileId]);
+
   if (!selectedFileId) {
     return (
       <div className="flex h-full items-center justify-center text-[#cccccc] opacity-50">
@@ -137,27 +168,38 @@ export function CodeViewerPanel() {
             </div>
           </div>
         ) : canShowDiff ? (
-          <div className="p-4 font-mono text-sm whitespace-pre break-all">
-            {diffData!.map((line, idx) => (
-              <div
-                key={idx}
-                className={`flex items-start gap-2 w-full ${
-                  line.type === 'removed' ? 'bg-red-900/30' :
-                  line.type === 'added' ? 'bg-green-900/30' :
-                  line.type === 'hunk' ? 'bg-yellow-900/30' :
-                  'bg-transparent'
-                }`}
-                style={{ paddingLeft: '8px' }}
-              >
-                <span className="w-10 shrink-0 text-right text-zinc-600 select-none pr-2">
-                  {line.type === 'removed' ? line.oldLineNum : line.type === 'added' ? line.newLineNum : line.oldLineNum}
-                </span>
-                <span className="w-6 shrink-0 text-center text-zinc-600 select-none">
-                  {line.type === 'removed' ? <Minus className="w-3 h-3 mx-auto" /> : line.type === 'added' ? <Plus className="w-3 h-3 mx-auto" /> : ' '}
-                </span>
-                <span className="flex-1 select-text text-[#d4d4d4]">{line.content || ' '}</span>
-              </div>
-            ))}
+          <div className="p-4 font-mono text-sm whitespace-pre">
+            {diffData!.map((line, idx) => {
+              const tokens = tokenizedDiff[idx];
+              return (
+                <div
+                  key={idx}
+                  className={`flex items-start gap-2 w-full ${
+                    line.type === 'removed' ? 'bg-red-900/30' :
+                    line.type === 'added' ? 'bg-green-900/30' :
+                    line.type === 'hunk' ? 'bg-yellow-900/30' :
+                    'bg-transparent'
+                  }`}
+                  style={{ paddingLeft: '8px' }}
+                >
+                  <span className="w-10 shrink-0 text-right text-zinc-600 select-none pr-2">
+                    {line.type === 'removed' ? line.oldLineNum : line.type === 'added' ? line.newLineNum : line.oldLineNum}
+                  </span>
+                  <span className="w-6 shrink-0 text-center text-zinc-600 select-none">
+                    {line.type === 'removed' ? <Minus className="w-3 h-3 mx-auto" /> : line.type === 'added' ? <Plus className="w-3 h-3 mx-auto" /> : ' '}
+                  </span>
+                  <span className="flex-1 select-text">
+                    {tokens ? (
+                      tokens.length === 0 ? <span>&nbsp;</span> : tokens.map((token, ti) => (
+                        <span key={ti} style={{ color: token.color }}>{token.content}</span>
+                      ))
+                    ) : (
+                      <span style={{ color: '#d4d4d4' }}>{line.content || '\u00A0'}</span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         ) : contentLoading && fileContent === null ? (
           <div className="flex items-center justify-center h-full text-zinc-500">
@@ -175,14 +217,20 @@ export function CodeViewerPanel() {
             <span className="text-sm">File not found at this revision</span>
           </div>
         ) : (
-          <div className="p-4 font-mono text-sm whitespace-pre break-all">
-            {fileContent?.split('\n').map((line, idx) => (
+          <div className="p-4 font-mono text-sm whitespace-pre">
+            {(tokenizedContent || fileContent!.split('\n').map(l => [{ content: l, color: '#d4d4d4' }])).map((line, idx) => (
               <div key={idx} className="flex items-start gap-2">
-                <span className="w-10 shrink-0 text-right text-zinc-600 select-none pr-2">
-                  {idx + 1}
-                </span>
+                <span className="w-10 shrink-0 text-right text-zinc-600 select-none pr-2">{idx + 1}</span>
                 <span className="w-6 shrink-0 text-center text-zinc-600 select-none"> </span>
-                <span className="flex-1 select-text text-[#d4d4d4]">{line || ' '}</span>
+                <span className="flex-1 select-text">
+                  {line.length === 0 ? (
+                    <span className="text-[#d4d4d4]">&nbsp;</span>
+                  ) : (
+                    line.map((token, ti) => (
+                      <span key={ti} style={{ color: token.color }}>{token.content}</span>
+                    ))
+                  )}
+                </span>
               </div>
             ))}
           </div>
