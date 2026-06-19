@@ -3,6 +3,7 @@ node_modules
 repos/
 implementation_plan.md
 *.md
+!README.md
 
 # Checkpoint system documentation and generated summaries
 CHECKPOINT_FILES_CREATED.txt
