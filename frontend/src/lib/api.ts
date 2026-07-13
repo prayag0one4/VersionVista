@@ -25,6 +25,9 @@ export interface Commit {
   };
   timestamp: string;
   repoId: string;
+  filesChanged?: number;
+  insertions?: number;
+  deletions?: number;
 }
 
 export interface FileNode {

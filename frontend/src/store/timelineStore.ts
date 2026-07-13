@@ -9,6 +9,7 @@ export interface TimelineState {
   setCurrentCommitIndex: (index: number) => void;
   play: () => void;
   pause: () => void;
+  replay: () => void;
   setSpeed: (speed: number) => void;
   nextCommit: (max: number) => void;
   prevCommit: () => void;
@@ -25,6 +26,7 @@ export const useTimelineStore = create<TimelineState>((set) => ({
   setCurrentCommitIndex: (index) => set({ currentCommitIndex: index }),
   play: () => set({ isPlaying: true }),
   pause: () => set({ isPlaying: false }),
+  replay: () => set({ currentCommitIndex: 0, isPlaying: true }),
   setSpeed: (speed) => set({ playbackSpeed: speed }),
   nextCommit: (max) => set((state) => ({ 
     currentCommitIndex: Math.min(state.currentCommitIndex + 1, max - 1) 

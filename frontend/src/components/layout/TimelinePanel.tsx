@@ -4,14 +4,14 @@ import { useUIStore } from '@/store/uiStore';
 import { useTimelineStore } from '@/store/timelineStore';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { Play, Pause, SkipBack, SkipForward, FastForward, FileCode2, PlusCircle, MinusCircle } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, RotateCcw, FileCode2, PlusCircle, MinusCircle } from 'lucide-react';
 import { useEffect } from 'react';
 
 export function TimelinePanel() {
   const { selectedRepoId } = useUIStore();
   const { 
     currentCommitIndex, setCurrentCommitIndex, 
-    isPlaying, play, pause, 
+    isPlaying, play, pause, replay,
     playbackSpeed, setSpeed,
     nextCommit, prevCommit,
     showDiff, toggleDiff
@@ -86,6 +86,7 @@ export function TimelinePanel() {
   }
 
   const currentCommit = commits[currentCommitIndex];
+  const isFinished = !isPlaying && currentCommitIndex >= maxIndex && commits.length > 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -93,20 +94,20 @@ export function TimelinePanel() {
       <div className="flex items-center justify-between px-6 py-2 border-b border-[#222222] shrink-0 bg-[#111111]/50">
         <div className="flex items-center gap-2">
           {/* File Statistics (Replaced previous playback controls here to keep them with the timeline) */}
-          <div className="flex items-center gap-4 text-xs font-mono text-[#c4c6d0]">
-            <div className="flex items-center gap-1.5" title="Files Changed">
-              <FileCode2 className="w-3.5 h-3.5 text-[#c0c1ff]" />
-              <span>12 files</span>
+            <div className="flex items-center gap-4 text-xs font-mono text-[#c4c6d0]">
+              <div className="flex items-center gap-1.5" title="Files Changed">
+                <FileCode2 className="w-3.5 h-3.5 text-[#c0c1ff]" />
+                <span>{currentCommit?.filesChanged ?? 0} files</span>
+              </div>
+              <div className="flex items-center gap-1.5" title="Lines Added">
+                <PlusCircle className="w-3.5 h-3.5 text-[#4edea3]" />
+                <span className="text-[#4edea3]">+{currentCommit?.insertions ?? 0}</span>
+              </div>
+              <div className="flex items-center gap-1.5" title="Lines Deleted">
+                <MinusCircle className="w-3.5 h-3.5 text-[#ffb4ab]" />
+                <span className="text-[#ffb4ab]">-{currentCommit?.deletions ?? 0}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5" title="Lines Added">
-              <PlusCircle className="w-3.5 h-3.5 text-[#4edea3]" />
-              <span className="text-[#4edea3]">+142</span>
-            </div>
-            <div className="flex items-center gap-1.5" title="Lines Deleted">
-              <MinusCircle className="w-3.5 h-3.5 text-[#ffb4ab]" />
-              <span className="text-[#ffb4ab]">-35</span>
-            </div>
-          </div>
         </div>
 
         <div className="flex items-center gap-4">
@@ -163,9 +164,10 @@ export function TimelinePanel() {
             </button>
             <button 
               className="p-2 rounded-full bg-[#d8e2ff]/10 text-[#adc6ff] hover:bg-[#d8e2ff]/20 transition-colors shadow-[0_0_10px_rgba(173,198,255,0.2)]"
-              onClick={isPlaying ? pause : play}
+              onClick={isFinished ? replay : isPlaying ? pause : play}
+              title={isFinished ? 'Replay' : isPlaying ? 'Pause' : 'Play'}
             >
-              {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
+              {isFinished ? <RotateCcw className="w-5 h-5" /> : isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
             </button>
             <button 
               className="p-1.5 rounded-full text-[#8e909a] hover:bg-[#222222] hover:text-[#e3e2e7] transition-colors disabled:opacity-50"
