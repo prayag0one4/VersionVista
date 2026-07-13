@@ -53,7 +53,9 @@ export function TimelinePanel() {
     }
 
     for (const idx of indices) {
-      const commitHash = commits[idx].commitHash;
+      const commit = commits[idx];
+      if (!commit) continue;
+      const commitHash = commit.commitHash;
       queryClient.prefetchQuery({
         queryKey: ['repoState', selectedRepoId, commitHash],
         queryFn: async () => {
