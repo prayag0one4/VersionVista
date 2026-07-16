@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, Commit, RepositoryState } from '@/lib/api';
 import { useUIStore } from '@/store/uiStore';
 import { useTimelineStore } from '@/store/timelineStore';
-import { Button } from '@/components/ui/button';
+
 import { Slider } from '@/components/ui/slider';
 import { Play, Pause, SkipBack, SkipForward, RotateCcw, FileCode2, PlusCircle, MinusCircle } from 'lucide-react';
 import { useEffect } from 'react';

@@ -62,10 +62,6 @@ export interface TokenInfo {
   color: string | undefined;
 }
 
-export interface TokenizedLine {
-  tokens: TokenInfo[];
-}
-
 export async function tokenizeCode(code: string, filePath: string) {
   const highlighter = await getHighlighterInstance();
   const lang = getLanguageFromPath(filePath);

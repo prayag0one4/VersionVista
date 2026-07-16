@@ -7,9 +7,9 @@ import { useTimelineStore } from '@/store/timelineStore';
 import { FileTreePanel } from '@/components/layout/FileTreePanel';
 import { CodeViewerPanel } from '@/components/layout/CodeViewerPanel';
 import { TimelinePanel } from '@/components/layout/TimelinePanel';
-import { ChevronDown, GitBranch, Play } from 'lucide-react';
-
+import { RepoCard } from '@/components/layout/RepoCard';
 import { AddRepoDialog } from '@/components/layout/AddRepoDialog';
+import { ChevronDown } from 'lucide-react';
 
 export default function Home() {
   const { selectedRepoId, selectRepo } = useUIStore();
@@ -55,18 +55,7 @@ export default function Home() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full max-w-4xl content-start">
             {repos.map(repo => (
-              <button
-                key={repo._id}
-                onClick={() => selectRepo(repo._id)}
-                className="flex flex-col items-start rounded-xl border border-[#333333] bg-[#111111]/60 backdrop-blur-md p-6 transition-all hover:border-[#adc6ff]/50 hover:bg-[#1a1a1a] text-left shadow-lg"
-              >
-                <h2 className="text-lg font-semibold text-[#e3e2e7]">{repo.name}</h2>
-                <p className="mt-2 text-sm text-[#8e909a] truncate w-full font-mono" title={repo.localPath}>{repo.localPath}</p>
-                <div className="mt-4 flex items-center gap-2 text-xs font-mono text-[#c0c1ff]">
-                  <span className="rounded bg-[#333333]/40 border border-[#333333] px-2 py-1">{repo.defaultBranch}</span>
-                  <span className="rounded bg-[#4edea3]/10 border border-[#4edea3]/30 text-[#4edea3] px-2 py-1 capitalize">{repo.status}</span>
-                </div>
-              </button>
+              <RepoCard key={repo._id} repo={repo} />
             ))}
           </div>
         )}

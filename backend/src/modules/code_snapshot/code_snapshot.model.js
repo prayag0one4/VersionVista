@@ -21,14 +21,7 @@ const codeSnapshotSchema = new mongoose.Schema({
   // Store only file paths, not content (to avoid 16MB BSON limit)
   filePaths: [String],
 
-  totalSize: Number,
   fileCount: Number,
-
-  storageType: {
-    type: String,
-    enum: ["mongodb", "s3"],
-    default: "mongodb"
-  },
 
   isActive: {
     type: Boolean,

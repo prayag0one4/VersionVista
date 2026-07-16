@@ -19,10 +19,6 @@ const repoSchema = new mongoose.Schema({
   defaultBranch: {
     type: String,
     default: "main"
-  },
-  totalCommits: {
-    type: Number,
-    default: 0
   }
 }, { timestamps: true });
 

@@ -1,6 +1,4 @@
 const CodeSnapshot = require("./code_snapshot.model");
-const Commit = require("../commit/commit.model");
-const Diff = require("../diff/diff.model");
 const simpleGit = require("simple-git");
 const path = require("path");
 

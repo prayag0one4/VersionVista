@@ -39,7 +39,7 @@ const getChangeType = (file) => {
 
 const fetchAndProcess = async (req, res, next) => {
   try {
-    const { repoUrl } = req.body;
+    const { repoUrl, commitCount } = req.body;
 
     if (!repoUrl) {
       const err = new Error("repoUrl is required");
@@ -51,7 +51,8 @@ const fetchAndProcess = async (req, res, next) => {
     const owner = getOwnerFromRepoUrl(repoUrl);
     const repo = await repoService.findOrCreate(repoUrl, repoName, owner);
 
-    const commits = await getCommitLog(repoPath, 20);
+    const maxCommits = Math.max(1, Math.min(100, Number(commitCount) || 20));
+    const commits = await getCommitLog(repoPath, maxCommits);
 
     let createdCommits = 0;
     let createdFileChanges = 0;
@@ -78,8 +79,7 @@ const fetchAndProcess = async (req, res, next) => {
         parentHash: commit.refs,
         filesChanged: summary.changed || 0,
         insertions: summary.insertions || 0,
-        deletions: summary.deletions || 0,
-        processed: true
+        deletions: summary.deletions || 0
       });
 
       createdCommits += 1;
@@ -194,8 +194,28 @@ const getRepo = async (req, res, next) => {
   }
 };
 
+const deleteRepo = async (req, res, next) => {
+  try {
+    const repo = await repoService.deleteRepoById(req.params.id);
+
+    if (!repo) {
+      const err = new Error("Repo not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    res.json({
+      success: true,
+      message: `Deleted ${repo.name} and all associated data`
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   fetchAndProcess,
   listRepos,
-  getRepo
+  getRepo,
+  deleteRepo
 };

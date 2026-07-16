@@ -18,17 +18,19 @@ import { Plus, Loader2 } from 'lucide-react';
 export function AddRepoDialog() {
   const [open, setOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState('');
+  const [commitCount, setCommitCount] = useState(20);
   const queryClient = useQueryClient();
 
   const addRepoMutation = useMutation({
-    mutationFn: async (url: string) => {
-      const res = await api.post('/repo/fetch', { repoUrl: url });
+    mutationFn: async ({ url, count }: { url: string; count: number }) => {
+      const res = await api.post('/repo/fetch', { repoUrl: url, commitCount: count });
       return res.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['repos'] });
       setOpen(false);
       setRepoUrl('');
+      setCommitCount(20);
     },
     onError: (error: any) => {
       alert(error.response?.data?.error || error.message || 'Failed to add repository');
@@ -38,7 +40,7 @@ export function AddRepoDialog() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (repoUrl.trim()) {
-      addRepoMutation.mutate(repoUrl.trim());
+      addRepoMutation.mutate({ url: repoUrl.trim(), count: commitCount });
     }
   };
 
@@ -66,6 +68,21 @@ export function AddRepoDialog() {
                 placeholder="https://github.com/user/repo.git"
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
+                className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600"
+                disabled={addRepoMutation.isPending}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="commitCount" className="text-zinc-300">
+                Commits to analyze
+              </Label>
+              <Input
+                id="commitCount"
+                type="number"
+                min={1}
+                max={100}
+                value={commitCount}
+                onChange={(e) => setCommitCount(Math.max(1, Math.min(100, Number(e.target.value) || 20)))}
                 className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600"
                 disabled={addRepoMutation.isPending}
               />

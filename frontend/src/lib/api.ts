@@ -9,10 +9,9 @@ export const api = axios.create({
 export interface Repository {
   _id: string;
   name: string;
-  remoteUrl: string;
+  owner: string;
+  githubUrl: string;
   defaultBranch: string;
-  localPath: string;
-  status: string;
 }
 
 export interface Commit {
@@ -44,10 +43,4 @@ export interface RepositoryState {
   totalSize: number;
 }
 
-export interface DiffInfo {
-  filename: string;
-  status: string;
-  additions: number;
-  deletions: number;
-  patch: string;
-}
+

@@ -6,8 +6,6 @@ const repoBasePath = path.join(__dirname, "../../repos");
 
 const getRepoPath = (name) => path.join(repoBasePath, name);
 
-const git = simpleGit();
-
 const getRepoNameFromUrl = (repoUrl) => repoUrl.split("/").pop().replace(".git", "");
 
 const cloneRepo = async (repoUrl) => {
@@ -40,12 +38,41 @@ const getDiffSummary = async (repoPath, hash) => {
   try {
     return await gitRepo.diffSummary([`${hash}^`, hash]);
   } catch (_) {
-    return {
-      changed: 0,
-      insertions: 0,
-      deletions: 0,
-      files: []
-    };
+    // Root commit (no parent) — use diff-tree with --root
+    try {
+      const output = await gitRepo.raw([
+        "diff-tree",
+        "--root",
+        "--no-commit-id",
+        "-r",
+        "--numstat",
+        hash,
+      ]);
+      const lines = output.trim().split("\n").filter((l) => l.trim());
+      const files = [];
+      let insertions = 0;
+      let deletions = 0;
+
+      for (const line of lines) {
+        const parts = line.split("\t");
+        if (parts.length < 3) continue;
+        const adds = parts[0] === "-" ? 0 : parseInt(parts[0]) || 0;
+        const dels = parts[1] === "-" ? 0 : parseInt(parts[1]) || 0;
+        insertions += adds;
+        deletions += dels;
+        files.push({
+          file: parts[2],
+          changes: adds + dels,
+          insertions: adds,
+          deletions: dels,
+          binary: false,
+        });
+      }
+
+      return { changed: files.length, insertions, deletions, files };
+    } catch (__) {
+      return { changed: 0, insertions: 0, deletions: 0, files: [] };
+    }
   }
 };
 

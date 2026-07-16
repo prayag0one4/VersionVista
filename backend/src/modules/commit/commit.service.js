@@ -39,7 +39,6 @@ const getCommitById = (id) => Commit.findById(id).populate("repoId");
 module.exports = {
   findByHashAndRepo,
   createCommit,
-  bulkCreateCommits,
   getCommitsByRepoId,
   getCommitById
 };

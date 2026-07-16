@@ -46,10 +46,6 @@ const commitSchema = new mongoose.Schema({
     default: 0
   },
 
-  processed: {
-    type: Boolean,
-    default: false
-  }
 
 }, { timestamps: true });
 
