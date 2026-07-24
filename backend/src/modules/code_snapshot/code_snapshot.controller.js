@@ -4,7 +4,7 @@ const Commit = require("../commit/commit.model");
 
 const createSnapshot = async (req, res) => {
   try {
-    const { repoId, commitHash } = req.body;
+    const { repoId, commitHash, githubToken } = req.body;
 
     if (!repoId || !commitHash) {
       return res.status(400).json({ error: "repoId and commitHash are required" });
@@ -26,7 +26,8 @@ const createSnapshot = async (req, res) => {
       repo.githubUrl,
       commitHash,
       commitCount,
-      { branch: repo.defaultBranch, author: commit.author.name, message: commit.message }
+      { branch: repo.defaultBranch, author: commit.author.name, message: commit.message },
+      githubToken
     );
 
     res.status(201).json({ message: "Snapshot created successfully", snapshot });
@@ -50,13 +51,15 @@ const getSnapshot = async (req, res) => {
 const getRepositoryState = async (req, res) => {
   try {
     const { repoId, commitHash } = req.params;
+    const githubToken = req.headers["x-github-token"];
 
     const repo = await Repo.findById(repoId);
     if (!repo) return res.status(404).json({ error: "Repository not found" });
 
     const filePaths = await codeSnapshotService.getAllFilePathsAtCommit(
       repo.githubUrl,
-      commitHash
+      commitHash,
+      githubToken
     );
 
     res.json({
@@ -74,6 +77,7 @@ const getFileContent = async (req, res) => {
   try {
     const { repoId, commitHash } = req.params;
     const { path: filePath } = req.query;
+    const githubToken = req.headers["x-github-token"];
 
     if (!filePath) {
       return res.status(400).json({ error: "path query parameter is required" });
@@ -85,7 +89,8 @@ const getFileContent = async (req, res) => {
     const content = await codeSnapshotService.getFileContent(
       repo.githubUrl,
       commitHash,
-      filePath
+      filePath,
+      githubToken
     );
 
     res.json({ filePath, content });
@@ -98,6 +103,7 @@ const getFileDiff = async (req, res) => {
   try {
     const { repoId, fromCommit, toCommit } = req.params;
     const { path: filePath } = req.query;
+    const githubToken = req.headers["x-github-token"];
 
     if (!filePath) {
       return res.status(400).json({ error: "path query parameter is required" });
@@ -110,7 +116,8 @@ const getFileDiff = async (req, res) => {
       repo.githubUrl,
       fromCommit,
       toCommit,
-      filePath
+      filePath,
+      githubToken
     );
 
     res.json({ filePath, fromCommit, toCommit, lines: diffLines });
@@ -146,13 +153,14 @@ const pruneSnapshots = async (req, res) => {
 const getCommitDiff = async (req, res) => {
   try {
     const { repoId, fromCommit, toCommit } = req.params;
+    const githubToken = req.headers["x-github-token"];
 
     const repo = await Repo.findById(repoId);
     if (!repo) return res.status(404).json({ error: "Repository not found" });
 
     const [fromState, toState] = await Promise.all([
-      codeSnapshotService.getRepositoryStateAtCommit(repo.githubUrl, fromCommit),
-      codeSnapshotService.getRepositoryStateAtCommit(repo.githubUrl, toCommit),
+      codeSnapshotService.getRepositoryStateAtCommit(repo.githubUrl, fromCommit, githubToken),
+      codeSnapshotService.getRepositoryStateAtCommit(repo.githubUrl, toCommit, githubToken),
     ]);
 
     const fromMap = new Map(fromState.map((f) => [f.filePath, f.content]));

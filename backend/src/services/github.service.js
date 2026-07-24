@@ -1,15 +1,16 @@
 const GITHUB_API = "https://api.github.com";
 
-const headers = () => {
+const headers = (token) => {
   const h = { Accept: "application/vnd.github+json" };
-  if (process.env.GITHUB_TOKEN) {
-    h.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const t = token || process.env.GITHUB_TOKEN;
+  if (t) {
+    h.Authorization = `Bearer ${t}`;
   }
   return h;
 };
 
-const ghFetch = async (url) => {
-  const res = await fetch(url, { headers: headers() });
+const ghFetch = async (url, token) => {
+  const res = await fetch(url, { headers: headers(token) });
   if (!res.ok) {
     throw new Error(`GitHub API ${res.status}: ${await res.text()}`);
   }
@@ -22,10 +23,10 @@ const parseRepoUrl = (repoUrl) => {
   return { owner: parts[0], repo: parts[1]?.replace(".git", "") };
 };
 
-const getCommitLog = async (repoUrl, maxCount = 20) => {
+const getCommitLog = async (repoUrl, maxCount = 20, token) => {
   const { owner, repo } = parseRepoUrl(repoUrl);
   const res = await ghFetch(
-    `${GITHUB_API}/repos/${owner}/${repo}/commits?per_page=${maxCount}`
+    `${GITHUB_API}/repos/${owner}/${repo}/commits?per_page=${maxCount}`, token
   );
   const commits = await res.json();
 
@@ -39,10 +40,10 @@ const getCommitLog = async (repoUrl, maxCount = 20) => {
   }));
 };
 
-const getDiffSummary = async (repoUrl, hash) => {
+const getDiffSummary = async (repoUrl, hash, token) => {
   const { owner, repo } = parseRepoUrl(repoUrl);
   const res = await ghFetch(
-    `${GITHUB_API}/repos/${owner}/${repo}/commits/${hash}`
+    `${GITHUB_API}/repos/${owner}/${repo}/commits/${hash}`, token
   );
   const data = await res.json();
 
@@ -62,12 +63,12 @@ const getDiffSummary = async (repoUrl, hash) => {
   };
 };
 
-const getRawDiff = async (repoUrl, hash) => {
+const getRawDiff = async (repoUrl, hash, token) => {
   const { owner, repo } = parseRepoUrl(repoUrl);
   const res = await fetch(
     `${GITHUB_API}/repos/${owner}/${repo}/commits/${hash}`,
     {
-      headers: { ...headers(), Accept: "application/vnd.github.v3.diff" },
+      headers: { ...headers(token), Accept: "application/vnd.github.v3.diff" },
     }
   );
   const diffText = await res.text();
@@ -148,10 +149,10 @@ const getRawDiff = async (repoUrl, hash) => {
   return results;
 };
 
-const getAllFilePathsAtCommit = async (repoUrl, commitHash) => {
+const getAllFilePathsAtCommit = async (repoUrl, commitHash, token) => {
   const { owner, repo } = parseRepoUrl(repoUrl);
   const res = await ghFetch(
-    `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${commitHash}?recursive=1`
+    `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${commitHash}?recursive=1`, token
   );
   const data = await res.json();
   return (data.tree || [])
@@ -159,19 +160,19 @@ const getAllFilePathsAtCommit = async (repoUrl, commitHash) => {
     .map((item) => item.path);
 };
 
-const getFileContent = async (repoUrl, commitHash, filePath) => {
+const getFileContent = async (repoUrl, commitHash, filePath, token) => {
   const { owner, repo } = parseRepoUrl(repoUrl);
   const res = await ghFetch(
-    `${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}?ref=${commitHash}`
+    `${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}?ref=${commitHash}`, token
   );
   const data = await res.json();
   return Buffer.from(data.content, "base64").toString("utf-8");
 };
 
-const getFileDiff = async (repoUrl, fromCommitHash, toCommitHash, filePath) => {
+const getFileDiff = async (repoUrl, fromCommitHash, toCommitHash, filePath, token) => {
   const [oldContent, newContent] = await Promise.all([
-    getFileContent(repoUrl, fromCommitHash, filePath).catch(() => ""),
-    getFileContent(repoUrl, toCommitHash, filePath).catch(() => ""),
+    getFileContent(repoUrl, fromCommitHash, filePath, token).catch(() => ""),
+    getFileContent(repoUrl, toCommitHash, filePath, token).catch(() => ""),
   ]);
 
   const oldLines = oldContent.split("\n");

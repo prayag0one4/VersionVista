@@ -15,7 +15,7 @@ const getChangeType = (file) => {
 
 const fetchAndProcess = async (req, res, next) => {
   try {
-    const { repoUrl, commitCount } = req.body;
+    const { repoUrl, commitCount, githubToken } = req.body;
 
     if (!repoUrl) {
       const err = new Error("repoUrl is required");
@@ -27,7 +27,7 @@ const fetchAndProcess = async (req, res, next) => {
     const repo = await repoService.findOrCreate(repoUrl, repoName, owner);
 
     const maxCommits = Math.max(1, Math.min(100, Number(commitCount) || 20));
-    const commits = await githubService.getCommitLog(repoUrl, maxCommits);
+    const commits = await githubService.getCommitLog(repoUrl, maxCommits, githubToken);
 
     let createdCommits = 0;
     let createdFileChanges = 0;
@@ -37,7 +37,7 @@ const fetchAndProcess = async (req, res, next) => {
       const existing = await commitService.findByHashAndRepo(commit.hash, repo._id);
       if (existing) continue;
 
-      const summary = await githubService.getDiffSummary(repoUrl, commit.hash);
+      const summary = await githubService.getDiffSummary(repoUrl, commit.hash, githubToken);
 
       const savedCommit = await commitService.createCommit({
         repoId: repo._id,
@@ -67,7 +67,7 @@ const fetchAndProcess = async (req, res, next) => {
         createdFileChanges += created.length;
       }
 
-      const parsedDiffs = await githubService.getRawDiff(repoUrl, commit.hash);
+      const parsedDiffs = await githubService.getRawDiff(repoUrl, commit.hash, githubToken);
       const diffPayload = parsedDiffs
         .filter((d) => d.filePath)
         .map((d) => ({

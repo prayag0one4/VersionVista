@@ -1,8 +1,27 @@
 import axios from 'axios';
 
-// Create base instance
 export const api = axios.create({
   baseURL: '/api',
+});
+
+export const setRepoToken = (repoId: string, token: string) => {
+  sessionStorage.setItem(`gh_token_${repoId}`, token);
+};
+
+export const getRepoToken = (repoId: string): string | undefined => {
+  return sessionStorage.getItem(`gh_token_${repoId}`) || undefined;
+};
+
+api.interceptors.request.use((config) => {
+  const url = config.url || '';
+  const match = url.match(/\/code-snapshots\/([^/]+)\//);
+  if (match) {
+    const token = getRepoToken(match[1]);
+    if (token) {
+      config.headers.set('X-GitHub-Token', token);
+    }
+  }
+  return config;
 });
 
 // Types based on backend structures

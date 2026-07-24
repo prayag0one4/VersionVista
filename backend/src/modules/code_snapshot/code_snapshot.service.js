@@ -1,7 +1,7 @@
 const CodeSnapshot = require("./code_snapshot.model");
 const githubService = require("../../services/github.service");
 
-const createSnapshot = async (repoId, repoUrl, commitHash, commitIndex, metadata = {}) => {
+const createSnapshot = async (repoId, repoUrl, commitHash, commitIndex, metadata = {}, token) => {
   const existing = await CodeSnapshot.findOne({
     repoId,
     commitHash,
@@ -17,7 +17,7 @@ const createSnapshot = async (repoId, repoUrl, commitHash, commitIndex, metadata
     { isActive: false }
   );
 
-  const filePaths = await githubService.getAllFilePathsAtCommit(repoUrl, commitHash);
+  const filePaths = await githubService.getAllFilePathsAtCommit(repoUrl, commitHash, token);
 
   const snapshot = await CodeSnapshot.create({
     repoId,
@@ -32,25 +32,25 @@ const createSnapshot = async (repoId, repoUrl, commitHash, commitIndex, metadata
   return snapshot;
 };
 
-const getAllFilePathsAtCommit = async (repoUrl, commitHash) => {
-  return githubService.getAllFilePathsAtCommit(repoUrl, commitHash);
+const getAllFilePathsAtCommit = async (repoUrl, commitHash, token) => {
+  return githubService.getAllFilePathsAtCommit(repoUrl, commitHash, token);
 };
 
-const getFileContent = async (repoUrl, commitHash, filePath) => {
-  return githubService.getFileContent(repoUrl, commitHash, filePath);
+const getFileContent = async (repoUrl, commitHash, filePath, token) => {
+  return githubService.getFileContent(repoUrl, commitHash, filePath, token);
 };
 
-const getFileDiff = async (repoUrl, fromCommitHash, toCommitHash, filePath) => {
-  return githubService.getFileDiff(repoUrl, fromCommitHash, toCommitHash, filePath);
+const getFileDiff = async (repoUrl, fromCommitHash, toCommitHash, filePath, token) => {
+  return githubService.getFileDiff(repoUrl, fromCommitHash, toCommitHash, filePath, token);
 };
 
-const reconstructRepositoryState = async (repoUrl, commitHash) => {
-  const filePaths = await githubService.getAllFilePathsAtCommit(repoUrl, commitHash);
+const reconstructRepositoryState = async (repoUrl, commitHash, token) => {
+  const filePaths = await githubService.getAllFilePathsAtCommit(repoUrl, commitHash, token);
 
   const files = await Promise.all(
     filePaths.map(async (filePath) => {
       try {
-        const content = await githubService.getFileContent(repoUrl, commitHash, filePath);
+        const content = await githubService.getFileContent(repoUrl, commitHash, filePath, token);
         return { filePath, content };
       } catch {
         return null;
@@ -84,8 +84,8 @@ const listSnapshots = async (repoId, options = {}) => {
   };
 };
 
-const getRepositoryStateAtCommit = async (repoUrl, commitHash) => {
-  return reconstructRepositoryState(repoUrl, commitHash);
+const getRepositoryStateAtCommit = async (repoUrl, commitHash, token) => {
+  return reconstructRepositoryState(repoUrl, commitHash, token);
 };
 
 const pruneOldSnapshots = async (repoId, keepCount = 5) => {

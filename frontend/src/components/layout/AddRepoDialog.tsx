@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, setRepoToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,18 +19,23 @@ export function AddRepoDialog() {
   const [open, setOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState('');
   const [commitCount, setCommitCount] = useState(20);
+  const [githubToken, setGithubToken] = useState('');
   const queryClient = useQueryClient();
 
   const addRepoMutation = useMutation({
-    mutationFn: async ({ url, count }: { url: string; count: number }) => {
-      const res = await api.post('/repo/fetch', { repoUrl: url, commitCount: count });
+    mutationFn: async ({ url, count, token }: { url: string; count: number; token?: string }) => {
+      const res = await api.post('/repo/fetch', { repoUrl: url, commitCount: count, githubToken: token || undefined });
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (githubToken.trim() && data?.data?.repoId) {
+        setRepoToken(data.data.repoId, githubToken.trim());
+      }
       queryClient.invalidateQueries({ queryKey: ['repos'] });
       setOpen(false);
       setRepoUrl('');
       setCommitCount(20);
+      setGithubToken('');
     },
     onError: (error: any) => {
       alert(error.response?.data?.error || error.message || 'Failed to add repository');
@@ -40,7 +45,7 @@ export function AddRepoDialog() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (repoUrl.trim()) {
-      addRepoMutation.mutate({ url: repoUrl.trim(), count: commitCount });
+      addRepoMutation.mutate({ url: repoUrl.trim(), count: commitCount, token: githubToken.trim() || undefined });
     }
   };
 
@@ -83,6 +88,20 @@ export function AddRepoDialog() {
                 max={100}
                 value={commitCount}
                 onChange={(e) => setCommitCount(Math.max(1, Math.min(100, Number(e.target.value) || 20)))}
+                className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600"
+                disabled={addRepoMutation.isPending}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="token" className="text-zinc-300">
+                GitHub Token <span className="text-zinc-500">(required for private repos)</span>
+              </Label>
+              <Input
+                id="token"
+                type="password"
+                placeholder="ghp_xxxxxxxxxxxx"
+                value={githubToken}
+                onChange={(e) => setGithubToken(e.target.value)}
                 className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600"
                 disabled={addRepoMutation.isPending}
               />
