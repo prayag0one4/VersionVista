@@ -37,6 +37,16 @@ export interface FileNode {
   status?: 'added' | 'modified' | 'deleted' | 'unchanged';
 }
 
+export interface FileChange {
+  _id: string;
+  commitId: string;
+  repoId: string;
+  filePath: string;
+  changeType: "added" | "modified" | "deleted";
+  additions: number;
+  deletions: number;
+}
+
 export interface RepositoryState {
   files: FileNode[];
   fileCount: number;

@@ -117,7 +117,7 @@ export default function Home() {
       </div>
 
       {/* Bottom Panel: Timeline spans full width */}
-      <div className="h-48 shrink-0 border-t border-[#222222] bg-[#000000]/90 backdrop-blur-md flex flex-col overflow-hidden relative z-20">
+      <div className="h-48 shrink-0 border-t border-[#222222] bg-[#000000]/90 backdrop-blur-md flex flex-col relative z-20">
         <TimelinePanel />
       </div>
     </div>

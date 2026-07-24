@@ -1,14 +1,15 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, Commit, RepositoryState } from '@/lib/api';
+import { api, Commit, RepositoryState, FileChange } from '@/lib/api';
 import { useUIStore } from '@/store/uiStore';
 import { useTimelineStore } from '@/store/timelineStore';
 
 import { Slider } from '@/components/ui/slider';
-import { Play, Pause, SkipBack, SkipForward, RotateCcw, FileCode2, PlusCircle, MinusCircle } from 'lucide-react';
-import { useEffect } from 'react';
+import { Play, Pause, SkipBack, SkipForward, RotateCcw, FileCode2, PlusCircle, MinusCircle, ChevronDown } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
 
 export function TimelinePanel() {
   const { selectedRepoId } = useUIStore();
+  const selectFile = useUIStore((s) => s.selectFile);
   const { 
     currentCommitIndex, setCurrentCommitIndex, 
     isPlaying, play, pause, replay,
@@ -81,33 +82,106 @@ export function TimelinePanel() {
     return () => clearInterval(interval);
   }, [isPlaying, currentCommitIndex, maxIndex, playbackSpeed, commits, nextCommit, pause]);
 
+  const currentCommit = commits?.[currentCommitIndex];
+  const isFinished = !isPlaying && currentCommitIndex >= maxIndex && commits && commits.length > 0;
+
+  const [filesOpen, setFilesOpen] = useState(false);
+  const filesRef = useRef<HTMLDivElement>(null);
+
+  const { data: fileChanges } = useQuery({
+    queryKey: ['fileChanges', currentCommit?._id],
+    queryFn: async () => {
+      const res = await api.get<{ success: boolean; data: FileChange[] }>(
+        `/file-changes?commitId=${currentCommit?._id}`
+      );
+      return res.data.data;
+    },
+    enabled: !!currentCommit?._id && filesOpen,
+  });
+
+  useEffect(() => {
+    if (!filesOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (filesRef.current && !filesRef.current.contains(e.target as Node)) {
+        setFilesOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [filesOpen]);
+
   if (!commits) {
     return <div className="p-4 text-center text-sm text-[#8e909a]">Select a repository to view timeline</div>;
   }
-
-  const currentCommit = commits[currentCommitIndex];
-  const isFinished = !isPlaying && currentCommitIndex >= maxIndex && commits.length > 0;
 
   return (
     <div className="flex flex-col h-full">
       {/* Controls Bar */}
       <div className="flex items-center justify-between px-6 py-2 border-b border-[#222222] shrink-0 bg-[#111111]/50">
         <div className="flex items-center gap-2">
-          {/* File Statistics (Replaced previous playback controls here to keep them with the timeline) */}
-            <div className="flex items-center gap-4 text-xs font-mono text-[#c4c6d0]">
-              <div className="flex items-center gap-1.5" title="Files Changed">
+          <div className="relative" ref={filesRef}>
+            <button
+              onClick={() => setFilesOpen(!filesOpen)}
+              className="flex items-center gap-4 text-xs font-mono text-[#c4c6d0] hover:text-[#e3e2e7] transition-colors rounded-md px-2 py-1 -mx-2 hover:bg-[#222222]/50"
+            >
+              <div className="flex items-center gap-1.5">
                 <FileCode2 className="w-3.5 h-3.5 text-[#c0c1ff]" />
                 <span>{currentCommit?.filesChanged ?? 0} files</span>
               </div>
-              <div className="flex items-center gap-1.5" title="Lines Added">
+              <div className="flex items-center gap-1.5">
                 <PlusCircle className="w-3.5 h-3.5 text-[#4edea3]" />
                 <span className="text-[#4edea3]">+{currentCommit?.insertions ?? 0}</span>
               </div>
-              <div className="flex items-center gap-1.5" title="Lines Deleted">
+              <div className="flex items-center gap-1.5">
                 <MinusCircle className="w-3.5 h-3.5 text-[#ffb4ab]" />
                 <span className="text-[#ffb4ab]">-{currentCommit?.deletions ?? 0}</span>
               </div>
-            </div>
+              <ChevronDown className={`w-3 h-3 text-[#8e909a] transition-transform ${filesOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {filesOpen && (
+              <div className="absolute bottom-full left-0 mb-2 w-80 max-h-64 overflow-y-auto rounded-lg border border-[#333333] bg-[#111111] shadow-xl z-50">
+                <div className="p-2 border-b border-[#222222] text-[10px] font-mono uppercase tracking-wider text-[#8e909a] px-3 py-2">
+                  Changed Files
+                </div>
+                {!fileChanges ? (
+                  <div className="px-3 py-4 text-xs text-[#8e909a] text-center">Loading...</div>
+                ) : fileChanges.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-[#8e909a] text-center">No file changes found</div>
+                ) : (
+                  fileChanges.map((fc) => (
+                    <button
+                      key={fc._id}
+                      onClick={() => {
+                        selectFile(fc.filePath);
+                        setFilesOpen(false);
+                      }}
+                      className="flex items-center justify-between px-3 py-2 text-xs hover:bg-[#1a1a1a] transition-colors border-b border-[#222222]/50 last:border-0 w-full text-left cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          fc.changeType === 'added' ? 'bg-[#4edea3]' :
+                          fc.changeType === 'deleted' ? 'bg-[#ffb4ab]' :
+                          'bg-[#adc6ff]'
+                        }`} />
+                        <span className="truncate font-mono text-[11px] text-[#e3e2e7]" title={fc.filePath}>
+                          {fc.filePath}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        {fc.additions > 0 && (
+                          <span className="text-[#4edea3] font-mono text-[11px]">+{fc.additions}</span>
+                        )}
+                        {fc.deletions > 0 && (
+                          <span className="text-[#ffb4ab] font-mono text-[11px]">-{fc.deletions}</span>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-4">

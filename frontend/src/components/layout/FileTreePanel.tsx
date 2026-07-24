@@ -3,7 +3,7 @@ import { api, RepositoryState, Commit } from '@/lib/api';
 import { useUIStore } from '@/store/uiStore';
 import { useTimelineStore } from '@/store/timelineStore';
 import { File, Folder, ChevronRight, ChevronDown } from 'lucide-react';
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 
 interface TreeNode {
   name: string;
@@ -135,6 +135,17 @@ export function FileTreePanel() {
   });
 
   const tree = useMemo(() => repoState?.files ? buildTree(repoState.files) : [], [repoState]);
+
+  useEffect(() => {
+    if (!selectedFileId) return;
+    const parts = selectedFileId.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      const folderPath = parts.slice(0, i).join('/');
+      if (!expandedFolders.has(folderPath)) {
+        toggleFolder(folderPath);
+      }
+    }
+  }, [selectedFileId]);
 
   const handleSelectFile = useCallback((path: string) => {
     selectFile(path);
