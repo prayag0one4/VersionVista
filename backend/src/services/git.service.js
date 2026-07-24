@@ -2,7 +2,7 @@ const simpleGit = require("simple-git");
 const path = require("path");
 const fs = require("fs");
 
-const repoBasePath = path.join(__dirname, "../../repos");
+const repoBasePath = path.join("/tmp", "repos");
 
 const getRepoPath = (name) => path.join(repoBasePath, name);
 
