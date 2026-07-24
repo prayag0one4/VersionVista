@@ -20,7 +20,7 @@ const cloneRepo = async (repoUrl) => {
     return { repoName, repoPath };
   }
 
-  await git.clone(repoUrl, repoPath);
+  await simpleGit().clone(repoUrl, repoPath);
 
   return { repoName, repoPath };
 };
