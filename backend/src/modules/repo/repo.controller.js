@@ -4,36 +4,12 @@ const commitService = require("../commit/commit.service");
 const diffService = require("../diff/diff.service");
 const fileChangeService = require("../file_change/file_change.service");
 const codeSnapshotService = require("../code_snapshot/code_snapshot.service");
-const {
-  cloneRepo,
-  getCommitLog,
-  getDiffSummary,
-  getRawDiff
-} = require("../../services/git.service");
-
-const getOwnerFromRepoUrl = (repoUrl) => {
-  try {
-    const parsed = new URL(repoUrl);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    return parts[0] || "unknown";
-  } catch (_) {
-    return "unknown";
-  }
-};
+const githubService = require("../../services/github.service");
 
 const getChangeType = (file) => {
-  if (file.binary) {
-    return "modified";
-  }
-
-  if ((file.insertions || 0) > 0 && (file.deletions || 0) === 0) {
-    return "added";
-  }
-
-  if ((file.deletions || 0) > 0 && (file.insertions || 0) === 0) {
-    return "deleted";
-  }
-
+  if (file.binary) return "modified";
+  if ((file.insertions || 0) > 0 && (file.deletions || 0) === 0) return "added";
+  if ((file.deletions || 0) > 0 && (file.insertions || 0) === 0) return "deleted";
   return "modified";
 };
 
@@ -47,12 +23,11 @@ const fetchAndProcess = async (req, res, next) => {
       throw err;
     }
 
-    const { repoName, repoPath } = await cloneRepo(repoUrl);
-    const owner = getOwnerFromRepoUrl(repoUrl);
+    const { owner, repo: repoName } = githubService.parseRepoUrl(repoUrl);
     const repo = await repoService.findOrCreate(repoUrl, repoName, owner);
 
     const maxCommits = Math.max(1, Math.min(100, Number(commitCount) || 20));
-    const commits = await getCommitLog(repoPath, maxCommits);
+    const commits = await githubService.getCommitLog(repoUrl, maxCommits);
 
     let createdCommits = 0;
     let createdFileChanges = 0;
@@ -60,26 +35,20 @@ const fetchAndProcess = async (req, res, next) => {
 
     for (const commit of commits) {
       const existing = await commitService.findByHashAndRepo(commit.hash, repo._id);
+      if (existing) continue;
 
-      if (existing) {
-        continue;
-      }
-
-      const summary = await getDiffSummary(repoPath, commit.hash);
+      const summary = await githubService.getDiffSummary(repoUrl, commit.hash);
 
       const savedCommit = await commitService.createCommit({
         repoId: repo._id,
         commitHash: commit.hash,
         message: commit.message,
-        author: {
-          name: commit.author_name,
-          email: commit.author_email
-        },
+        author: { name: commit.author_name, email: commit.author_email },
         timestamp: new Date(commit.date),
         parentHash: commit.refs,
         filesChanged: summary.changed || 0,
         insertions: summary.insertions || 0,
-        deletions: summary.deletions || 0
+        deletions: summary.deletions || 0,
       });
 
       createdCommits += 1;
@@ -90,28 +59,28 @@ const fetchAndProcess = async (req, res, next) => {
         filePath: file.file,
         changeType: getChangeType(file),
         additions: file.insertions || 0,
-        deletions: file.deletions || 0
+        deletions: file.deletions || 0,
       }));
 
       if (fileChangesPayload.length) {
-        const createdFileChangeDocs = await fileChangeService.bulkCreateFileChanges(fileChangesPayload);
-        createdFileChanges += createdFileChangeDocs.length;
+        const created = await fileChangeService.bulkCreateFileChanges(fileChangesPayload);
+        createdFileChanges += created.length;
       }
 
-      const parsedDiffs = await getRawDiff(repoPath, commit.hash);
+      const parsedDiffs = await githubService.getRawDiff(repoUrl, commit.hash);
       const diffPayload = parsedDiffs
-        .filter((diff) => diff.filePath)
-        .map((diff) => ({
+        .filter((d) => d.filePath)
+        .map((d) => ({
           repoId: repo._id,
           commitId: savedCommit._id,
-          filePath: diff.filePath,
-          changeType: diff.changeType,
-          hunks: diff.hunks
+          filePath: d.filePath,
+          changeType: d.changeType,
+          hunks: d.hunks,
         }));
 
       if (diffPayload.length) {
-        const createdDiffDocs = await diffService.bulkCreateDiffs(diffPayload);
-        createdDiffs += createdDiffDocs.length;
+        const created = await diffService.bulkCreateDiffs(diffPayload);
+        createdDiffs += created.length;
       }
     }
 
@@ -122,24 +91,23 @@ const fetchAndProcess = async (req, res, next) => {
 
       const commitIndex = await Commit.countDocuments({
         repoId: repo._id,
-        timestamp: { $lt: snapshotCommitDate }
+        timestamp: { $lt: snapshotCommitDate },
       });
 
       try {
         snapshot = await codeSnapshotService.createSnapshot(
           repo._id,
-          repo.name,
+          repoUrl,
           snapshotCommit.hash,
           commitIndex,
           {
             branch: repo.defaultBranch,
             author: snapshotCommit.author_name,
-            message: snapshotCommit.message
+            message: snapshotCommit.message,
           }
         );
-        console.log(`✓ Snapshot created for commit ${snapshotCommit.hash}`);
       } catch (snapshotErr) {
-        console.error(`✗ Snapshot creation failed for commit ${snapshotCommit.hash}:`, snapshotErr.message);
+        console.error(`Snapshot creation failed:`, snapshotErr.message);
       }
     }
 
@@ -154,8 +122,8 @@ const fetchAndProcess = async (req, res, next) => {
         fileChangesCreated: createdFileChanges,
         diffsCreated: createdDiffs,
         snapshotCreated: Boolean(snapshot),
-        snapshotCommitHash: snapshot?.commitHash || null
-      }
+        snapshotCommitHash: snapshot?.commitHash || null,
+      },
     });
   } catch (err) {
     next(err);
@@ -165,11 +133,7 @@ const fetchAndProcess = async (req, res, next) => {
 const listRepos = async (req, res, next) => {
   try {
     const repos = await repoService.getAllRepos();
-
-    res.json({
-      success: true,
-      data: repos
-    });
+    res.json({ success: true, data: repos });
   } catch (err) {
     next(err);
   }
@@ -178,17 +142,12 @@ const listRepos = async (req, res, next) => {
 const getRepo = async (req, res, next) => {
   try {
     const repo = await repoService.getRepoById(req.params.id);
-
     if (!repo) {
       const err = new Error("Repo not found");
       err.statusCode = 404;
       throw err;
     }
-
-    res.json({
-      success: true,
-      data: repo
-    });
+    res.json({ success: true, data: repo });
   } catch (err) {
     next(err);
   }
@@ -197,25 +156,15 @@ const getRepo = async (req, res, next) => {
 const deleteRepo = async (req, res, next) => {
   try {
     const repo = await repoService.deleteRepoById(req.params.id);
-
     if (!repo) {
       const err = new Error("Repo not found");
       err.statusCode = 404;
       throw err;
     }
-
-    res.json({
-      success: true,
-      message: `Deleted ${repo.name} and all associated data`
-    });
+    res.json({ success: true, message: `Deleted ${repo.name} and all associated data` });
   } catch (err) {
     next(err);
   }
 };
 
-module.exports = {
-  fetchAndProcess,
-  listRepos,
-  getRepo,
-  deleteRepo
-};
+module.exports = { fetchAndProcess, listRepos, getRepo, deleteRepo };
