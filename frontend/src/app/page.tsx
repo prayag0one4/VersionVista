@@ -10,10 +10,40 @@ import { TimelinePanel } from '@/components/layout/TimelinePanel';
 import { RepoCard } from '@/components/layout/RepoCard';
 import { AddRepoDialog } from '@/components/layout/AddRepoDialog';
 import { ChevronDown } from 'lucide-react';
+import { useEffect } from 'react';
 
 export default function Home() {
   const { selectedRepoId, selectRepo } = useUIStore();
   const { currentCommitIndex, setCurrentCommitIndex } = useTimelineStore();
+
+  // Sync browser history with selected repo state
+  useEffect(() => {
+    const handlePopState = () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      const repoId = searchParams.get('repo');
+      useUIStore.getState().selectRepo(repoId);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    
+    const searchParams = new URLSearchParams(window.location.search);
+    const repoId = searchParams.get('repo');
+    if (repoId && !useUIStore.getState().selectedRepoId) {
+      useUIStore.getState().selectRepo(repoId);
+    }
+
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const currentRepoInUrl = searchParams.get('repo');
+    
+    if (selectedRepoId !== currentRepoInUrl) {
+      const newUrl = selectedRepoId ? `/?repo=${selectedRepoId}` : '/';
+      window.history.pushState({ repo: selectedRepoId }, '', newUrl);
+    }
+  }, [selectedRepoId]);
 
   const { data: repos, isLoading } = useQuery({
     queryKey: ['repos'],
