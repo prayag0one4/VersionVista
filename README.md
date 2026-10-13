@@ -66,7 +66,7 @@ npm run dev
 3. Provide a Git URL or point to a local directory path. The backend will index the repository's commit history.
 4. Select the repository to enter the IDE mode and start scrubbing the timeline!
 
-## 📂 Project Structure
+##  Project Structure
 
 ```
 VersionVista/
