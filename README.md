@@ -27,7 +27,7 @@ VersionVista is a decoupled full-stack application built with modern web technol
 - **Database**: [MongoDB](https://www.mongodb.com/) (Mongoose for storing repo metadata and commit checkpoints)
 - **Git Integration**: `simple-git` (For direct interaction with the repository working trees and refs)
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - Node.js (v18+ recommended)
