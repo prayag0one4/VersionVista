@@ -4,7 +4,7 @@ VersionVista is a modern, high-density, timeline-driven Git repository visualiza
 
 With a sleek, pure black developer-centric interface, VersionVista brings code evolution to life through interactive playbacks and deep commit inspections.
 
-## ✨ Features
+##  Features
 
 - **Interactive Commit Timeline**: Scrub through your repository's history with an interactive slider. Play, pause, and navigate commits chronologically to watch your codebase evolve.
 - **Historical File Tree**: The file explorer dynamically updates to reflect the exact state of the repository at the currently selected commit.
