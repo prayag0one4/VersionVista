@@ -12,7 +12,7 @@ With a sleek, pure black developer-centric interface, VersionVista brings code e
 - **Local Repository Indexing**: Safely clone or connect local Git repositories. The backend intelligently builds code snapshots using `simple-git` for extremely fast lookup times.
 - **Premium Black Aesthetic**: Built with a highly contrastive, true-black aesthetic designed for minimal eye strain and maximum code readability.
 
-## 🏗️ Architecture & Tech Stack
+##  Architecture & Tech Stack
 
 VersionVista is a decoupled full-stack application built with modern web technologies:
 
