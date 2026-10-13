@@ -86,7 +86,7 @@ VersionVista/
     └── package.json
 ```
 
-## 🤝 Contributing
+##  Contributing
 
 Contributions, issues, and feature requests are welcome! 
 If you want to contribute to the project, feel free to fork the repository, create a feature branch, and submit a pull request.
